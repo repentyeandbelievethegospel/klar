@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f2ec" />
+    <meta
+      name="description"
+      content="Klar – ein einfacher, lokal gespeicherter Ausgaben-Tracker."
+    />
+    <title>Klar – Ausgaben im Blick</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Hauptnavigation">
+        <a class="brand" href="#overview" data-view-link="overview" aria-label="Klar Startseite">
+          <span class="brand-mark" aria-hidden="true">
+            <span></span><span></span><span></span>
+          </span>
+          <span>Klar</span>
+        </a>
+
+        <nav class="desktop-nav">
+          <a class="nav-item active" href="#overview" data-view-link="overview">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z"/></svg>
+            Übersicht
+          </a>
+          <a class="nav-item" href="#transactions" data-view-link="transactions">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 7h13m0 0-3-3m3 3-3 3M17 17H4m0 0 3 3m-3-3 3-3"/></svg>
+            Transaktionen
+          </a>
+          <a class="nav-item" href="#analytics" data-view-link="analytics">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 20V10m7 10V4m7 16v-7"/></svg>
+            Auswertungen
+          </a>
+          <button class="nav-item" id="desktopBudgetButton" type="button">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v18M17 7.5c0-2-1.9-3.5-5-3.5S7 5.2 7 7.5c0 5 10 2 10 7 0 2.3-2 3.5-5 3.5s-5-1.5-5-3.5"/></svg>
+            Budget
+          </button>
+        </nav>
+
+        <div class="sidebar-foot">
+          <span class="privacy-dot"></span>
+          Deine Daten bleiben<br />auf diesem Gerät.
+        </div>
+      </aside>
+
+      <main>
+        <header class="topbar">
+          <a class="brand mobile-brand" href="#overview" data-view-link="overview" aria-label="Klar Startseite">
+            <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+            <span>Klar</span>
+          </a>
+          <div class="header-actions">
+            <button class="icon-button" id="searchToggle" type="button" aria-label="Buchungen durchsuchen">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+            </button>
+            <button class="avatar" id="profileButton" type="button" aria-label="Profil öffnen">LM</button>
+          </div>
+        </header>
+
+        <div class="content">
+          <div class="app-view active" id="overview" data-view="overview">
+          <section class="intro">
+            <div>
+              <p class="eyebrow" id="dateGreeting">MONTAG, 20. JULI</p>
+              <h1>Guten Morgen, Lea.</h1>
+              <p>Hier ist dein finanzieller Überblick.</p>
+            </div>
+            <button class="primary-button desktop-add" id="desktopAddButton" type="button">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+              Eintrag hinzufügen
+            </button>
+          </section>
+
+          <section class="summary-card" aria-label="Monatsübersicht">
+            <div class="summary-main">
+              <div class="summary-heading">
+                <span>Diesen Monat ausgegeben</span>
+              </div>
+              <strong class="summary-amount" id="totalAmount">CHF 0.00</strong>
+              <div class="trend-row">
+                <span class="trend-badge" id="trendBadge">
+                  <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m3 10 4-4 3 3 3-4"/></svg>
+                  <span id="trendValue">0%</span>
+                </span>
+                <span id="trendComparisonText">mehr Ausgaben als letzten Monat</span>
+              </div>
+
+              <div class="recurring-summary" aria-label="Ausgaben nach Rhythmus im aktuellen Monat">
+                <div>
+                  <span class="recurring-dot monthly"></span>
+                  <p>Monatlich</p>
+                  <strong id="monthlyRecurring">CHF 0.00</strong>
+                </div>
+                <div>
+                  <span class="recurring-dot yearly"></span>
+                  <p>Jährlich</p>
+                  <strong id="yearlyRecurring">CHF 0.00</strong>
+                </div>
+                <div>
+                  <span class="recurring-dot once"></span>
+                  <p>Einmalig</p>
+                  <strong id="oneTimeExpenses">CHF 0.00</strong>
+                </div>
+              </div>
+
+              <div class="month-cashflow">
+                <span>Einnahmen <b id="monthlyIncome">CHF 0.00</b></span>
+                <span>Saldo <b id="monthlyBalance">CHF 0.00</b></span>
+              </div>
+
+              <div class="budget-progress-wrap">
+                <div class="budget-labels">
+                  <span>Monatsbudget</span>
+                  <span><b id="budgetUsed">CHF 0</b> von <button id="budgetAmountButton" type="button">CHF 3'000</button></span>
+                </div>
+                <div class="budget-track" role="progressbar" aria-label="Verbrauchtes Monatsbudget" aria-valuemin="0" aria-valuemax="100">
+                  <span id="budgetProgress"></span>
+                </div>
+              </div>
+            </div>
+
+            <div class="category-chart">
+              <div class="donut-wrap">
+                <svg class="donut" viewBox="0 0 120 120" role="img" aria-label="Ausgaben nach Kategorie">
+                  <circle class="donut-base" cx="60" cy="60" r="45" />
+                  <g id="donutSegments" transform="rotate(-90 60 60)"></g>
+                </svg>
+                <div class="donut-center"><span>Top</span><b id="topCategory">–</b></div>
+              </div>
+              <div class="legend" id="categoryLegend"></div>
+            </div>
+          </section>
+          </div>
+
+          <section class="transactions-section app-view" id="transactions" data-view="transactions" hidden>
+            <section class="search-panel" id="searchPanel" aria-label="Suche">
+              <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>
+              <input id="searchInput" type="search" placeholder="Buchungen durchsuchen …" autocomplete="off" />
+              <button id="clearSearch" type="button" aria-label="Suche schließen">×</button>
+            </section>
+            <div class="section-title-row">
+              <div>
+                <p class="eyebrow">DEINE BUCHUNGEN</p>
+                <h2>Letzte Transaktionen</h2>
+              </div>
+              <div class="transaction-heading-actions">
+                <label class="transaction-period-label">
+                  <span class="sr-only">Zeitraum auswählen</span>
+                  <select id="transactionPeriodSelect" aria-label="Zeitraum der Buchungen auswählen"></select>
+                </label>
+              </div>
+            </div>
+
+            <div class="transaction-filters">
+              <div class="entry-type-filter" id="entryTypeFilter" aria-label="Buchungstyp filtern">
+                <button class="active" type="button" data-entry-type="Alle">Alle</button>
+                <button type="button" data-entry-type="Ausgabe">Ausgaben</button>
+                <button type="button" data-entry-type="Einnahme">Einnahmen</button>
+              </div>
+              <div class="period-filter" id="periodFilter" aria-label="Abrechnungsrhythmus filtern">
+              <button class="active" type="button" data-period="Alle">Alle</button>
+              <button type="button" data-period="Monatlich">Monatlich</button>
+              <button type="button" data-period="Jährlich">Jährlich</button>
+              <button type="button" data-period="Einmalig">Einmalig</button>
+              </div>
+            </div>
+            <div class="category-filter-row">
+              <div class="filter-chips" id="filterChips" aria-label="Kategorien filtern"></div>
+              <button class="manage-categories-button" id="manageCategoriesButton" type="button" aria-label="Kategorien verwalten">
+                <span>+</span> Kategorie
+              </button>
+            </div>
+            <div class="transaction-list" id="transactionList"></div>
+            <div class="empty-state" id="emptyState" hidden>
+              <span class="empty-icon">✓</span>
+              <h3>Alles klar hier.</h3>
+              <p>Für diesen Zeitraum und Filter wurden keine Buchungen gefunden.</p>
+            </div>
+          </section>
+
+          <section class="analytics-section app-view" id="analytics" data-view="analytics" hidden>
+            <div class="section-title-row analytics-title-row">
+              <div>
+                <p class="eyebrow">JAHRESÜBERSICHT</p>
+                <h2>Deine Auswertung</h2>
+              </div>
+              <div class="analytics-actions">
+                <label class="year-select-label">
+                  <span class="sr-only">Jahr auswählen</span>
+                  <select id="yearSelect" aria-label="Jahr auswählen"></select>
+                </label>
+                <button class="print-button" id="printAnalyticsButton" type="button">
+                  <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 9V4h10v5M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v7H7z"/></svg>
+                  Drucken
+                </button>
+              </div>
+            </div>
+
+            <div class="analytics-stats">
+              <article>
+                <span>Ausgaben im Jahr</span>
+                <strong id="annualTotal">CHF 0.00</strong>
+              </article>
+              <article>
+                <span>Ø Monatsausgaben</span>
+                <strong id="averageMonthlyExpenses">CHF 0.00</strong>
+              </article>
+              <article>
+                <span>Einnahmen im Jahr</span>
+                <strong class="income-text" id="annualIncome">CHF 0.00</strong>
+              </article>
+              <article>
+                <span>Sparbetrag</span>
+                <strong id="annualBalance">CHF 0.00</strong>
+              </article>
+              <article>
+                <span>Sparquote</span>
+                <strong id="savingsRate">0%</strong>
+              </article>
+            </div>
+
+            <div class="analytics-grid">
+              <article class="report-card monthly-report">
+                <div class="report-heading">
+                  <div>
+                    <h3>Einnahmen & Ausgaben pro Monat</h3>
+                    <p>Alle Buchungen im gewählten Jahr</p>
+                  </div>
+                  <div class="chart-legend"><span><i class="expense"></i>Ausgaben</span><span><i class="income"></i>Einnahmen</span></div>
+                </div>
+                <div class="bar-chart-wrap">
+                  <div class="chart-scale" id="chartScale"></div>
+                  <div class="bar-chart" id="annualBarChart" aria-label="Monatliche Ausgaben als Balkendiagramm"></div>
+                </div>
+              </article>
+
+              <article class="report-card category-report">
+                <div class="report-heading">
+                  <div>
+                    <h3>Nach Kategorien</h3>
+                    <p>Verteilung im gewählten Jahr</p>
+                  </div>
+                </div>
+
+                <div class="dual-category-reports">
+                  <section class="category-subreport">
+                    <h4><span class="subreport-dot expense"></span>Ausgaben</h4>
+                    <div class="annual-category-content">
+                      <div class="small-donut-wrap">
+                        <svg viewBox="0 0 120 120" role="img" aria-label="Jahresausgaben nach Kategorie">
+                          <circle class="donut-base" cx="60" cy="60" r="45" />
+                          <g id="annualExpenseDonutSegments" transform="rotate(-90 60 60)"></g>
+                        </svg>
+                        <div><strong id="annualExpenseDonutTotal">0</strong><span>CHF Total</span></div>
+                      </div>
+                      <div class="category-breakdown" id="expenseCategoryBreakdown"></div>
+                    </div>
+                  </section>
+
+                  <section class="category-subreport">
+                    <h4><span class="subreport-dot income"></span>Einnahmen</h4>
+                    <div class="annual-category-content">
+                      <div class="small-donut-wrap">
+                        <svg viewBox="0 0 120 120" role="img" aria-label="Jahreseinnahmen nach Kategorie">
+                          <circle class="donut-base" cx="60" cy="60" r="45" />
+                          <g id="annualIncomeDonutSegments" transform="rotate(-90 60 60)"></g>
+                        </svg>
+                        <div><strong id="annualIncomeDonutTotal">0</strong><span>CHF Total</span></div>
+                      </div>
+                      <div class="category-breakdown" id="incomeCategoryBreakdown"></div>
+                    </div>
+                  </section>
+                </div>
+              </article>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <nav class="mobile-nav" aria-label="Mobile Navigation">
+        <a class="active" href="#overview" data-view-link="overview">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 13h6V4H4v9Zm0 7h6v-4H4v4Zm10 0h6v-9h-6v9Zm0-16v4h6V4h-6Z"/></svg>
+          <span>Übersicht</span>
+        </a>
+        <a href="#transactions" data-view-link="transactions">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M7 7h13m0 0-3-3m3 3-3 3M17 17H4m0 0 3 3m-3-3 3-3"/></svg>
+          <span>Buchungen</span>
+        </a>
+        <button class="mobile-add" id="mobileAddButton" type="button" aria-label="Eintrag hinzufügen">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+        <button id="mobileBudgetButton" type="button">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v18M17 7.5c0-2-1.9-3.5-5-3.5S7 5.2 7 7.5c0 5 10 2 10 7 0 2.3-2 3.5-5 3.5s-5-1.5-5-3.5"/></svg>
+          <span>Budget</span>
+        </button>
+        <a href="#analytics" data-view-link="analytics">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 20V10m7 10V4m7 16v-7"/></svg>
+          <span>Auswertung</span>
+        </a>
+      </nav>
+    </div>
+
+    <div class="modal-backdrop" id="expenseModal" hidden>
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="expenseModalTitle">
+        <div class="modal-handle"></div>
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow" id="expenseModalEyebrow">NEUER EINTRAG</p>
+            <h2 id="expenseModalTitle">Eintrag hinzufügen</h2>
+          </div>
+          <button class="modal-close" type="button" data-close-modal aria-label="Schließen">×</button>
+        </div>
+        <form id="expenseForm">
+          <fieldset class="entry-type-fieldset">
+            <legend>Art des Eintrags</legend>
+            <div class="entry-type-options">
+              <label>
+                <input type="radio" name="type" value="Ausgabe" checked />
+                <span>Ausgabe</span>
+              </label>
+              <label>
+                <input type="radio" name="type" value="Einnahme" />
+                <span>Einnahme</span>
+              </label>
+            </div>
+          </fieldset>
+          <label>
+            Beschreibung
+            <input name="description" type="text" placeholder="z. B. Wocheneinkauf" maxlength="40" required autofocus />
+          </label>
+          <div class="form-grid">
+            <label>
+              Betrag (CHF)
+              <input name="amount" type="number" placeholder="0.00" min="0.05" step="0.05" inputmode="decimal" required />
+            </label>
+            <label>
+              Datum
+              <input name="date" type="date" required />
+            </label>
+          </div>
+          <label>
+            <span class="label-with-action">Kategorie <button id="formManageCategoriesButton" type="button">Verwalten</button></span>
+            <select name="category" id="categorySelect" required>
+              <option value="Lebensmittel">Lebensmittel</option>
+              <option value="Wohnen">Wohnen</option>
+              <option value="Mobilität">Mobilität</option>
+              <option value="Freizeit">Freizeit</option>
+              <option value="Sonstiges">Sonstiges</option>
+            </select>
+          </label>
+          <fieldset class="cycle-fieldset">
+            <legend>Abrechnungsrhythmus</legend>
+            <div class="cycle-options">
+              <label>
+                <input type="radio" name="period" value="Monatlich" />
+                <span><b>Monatlich</b><small>Wiederkehrend</small></span>
+              </label>
+              <label>
+                <input type="radio" name="period" value="Jährlich" />
+                <span><b>Jährlich</b><small>1× pro Jahr</small></span>
+              </label>
+              <label>
+                <input type="radio" name="period" value="Einmalig" checked />
+                <span><b>Einmalig</b><small>Keine Wiederholung</small></span>
+              </label>
+            </div>
+          </fieldset>
+          <button class="primary-button form-submit" id="entrySubmitButton" type="submit">Ausgabe speichern</button>
+        </form>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="budgetModal" hidden>
+      <section class="modal small-modal" role="dialog" aria-modal="true" aria-labelledby="budgetModalTitle">
+        <div class="modal-handle"></div>
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">MONATSZIEL</p>
+            <h2 id="budgetModalTitle">Budget festlegen</h2>
+          </div>
+          <button class="modal-close" type="button" data-close-modal aria-label="Schließen">×</button>
+        </div>
+        <form id="budgetForm">
+          <label>
+            Budget (CHF)
+            <input name="budget" type="number" min="1" step="1" inputmode="decimal" required />
+          </label>
+          <button class="primary-button form-submit" type="submit">Budget aktualisieren</button>
+        </form>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="categoryModal" hidden>
+      <section class="modal category-modal" role="dialog" aria-modal="true" aria-labelledby="categoryModalTitle">
+        <div class="modal-handle"></div>
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">PERSONALISIEREN</p>
+            <h2 id="categoryModalTitle">Kategorien verwalten</h2>
+          </div>
+          <button class="modal-close" type="button" data-close-modal aria-label="Schließen">×</button>
+        </div>
+
+        <form id="categoryForm" class="category-form">
+          <label>
+            Für welchen Buchungstyp?
+            <select name="type" required>
+              <option value="Ausgabe">Ausgabe</option>
+              <option value="Einnahme">Einnahme</option>
+            </select>
+          </label>
+          <div class="category-form-row">
+            <label>
+              Name
+              <input name="name" type="text" maxlength="24" placeholder="z. B. Gesundheit" required />
+            </label>
+            <label class="color-label">
+              Farbe
+              <input name="color" type="color" value="#477c68" aria-label="Farbe der Kategorie" />
+            </label>
+          </div>
+          <button class="primary-button form-submit" type="submit">Kategorie hinzufügen</button>
+        </form>
+
+        <div class="custom-category-section">
+          <div class="custom-category-heading">
+            <span>Eigene Kategorien</span>
+            <span id="customCategoryCount">0</span>
+          </div>
+          <div class="custom-category-list" id="customCategoryList"></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="profileModal" hidden>
+      <section class="modal profile-modal" role="dialog" aria-modal="true" aria-labelledby="profileModalTitle">
+        <div class="modal-handle"></div>
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">EINSTELLUNGEN</p>
+            <h2 id="profileModalTitle">Profil & Datensicherung</h2>
+          </div>
+          <button class="modal-close" type="button" data-close-modal aria-label="Schließen">×</button>
+        </div>
+
+        <section class="settings-section">
+          <div class="settings-heading">
+            <span class="settings-icon">P</span>
+            <div><h3>Dein Profil</h3><p>Name und Initialen anpassen</p></div>
+          </div>
+          <form id="profileForm" class="profile-form">
+            <label>
+              Benutzername
+              <input name="name" type="text" maxlength="40" placeholder="Dein Name" autocomplete="name" required />
+            </label>
+            <label>
+              Initialen
+              <input name="initials" type="text" maxlength="3" placeholder="LM" autocapitalize="characters" required />
+            </label>
+            <button class="secondary-button" type="submit">Profil speichern</button>
+          </form>
+        </section>
+
+        <section class="settings-section backup-section">
+          <div class="settings-heading">
+            <span class="settings-icon lock-icon">⌁</span>
+            <div><h3>Verschlüsseltes Backup</h3><p>Alle Daten als geschützte JSON-Datei</p></div>
+          </div>
+
+          <details class="backup-panel">
+            <summary>Backup exportieren <span>↓</span></summary>
+            <form id="exportForm">
+              <label>
+                Passwort
+                <input name="password" type="password" minlength="8" autocomplete="new-password" placeholder="Mindestens 8 Zeichen" required />
+              </label>
+              <label>
+                Passwort wiederholen
+                <input name="confirmation" type="password" minlength="8" autocomplete="new-password" placeholder="Passwort bestätigen" required />
+              </label>
+              <p class="security-note">Das Passwort kann nicht wiederhergestellt werden.</p>
+              <button class="primary-button form-submit" type="submit">Verschlüsselte JSON exportieren</button>
+            </form>
+          </details>
+
+          <details class="backup-panel">
+            <summary>Backup importieren <span>↑</span></summary>
+            <form id="importForm">
+              <label class="file-input-label">
+                Backup-Datei
+                <input name="file" type="file" accept="application/json,.json" required />
+              </label>
+              <label>
+                Passwort
+                <input name="password" type="password" minlength="8" autocomplete="current-password" placeholder="Passwort des Backups" required />
+              </label>
+              <p class="security-note warning-note">Beim Import werden die aktuellen Daten vollständig ersetzt.</p>
+              <button class="secondary-button import-button" type="submit">JSON entschlüsseln & importieren</button>
+            </form>
+          </details>
+        </section>
+      </section>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script src="app.js"></script>
+  </body>
+</html>
