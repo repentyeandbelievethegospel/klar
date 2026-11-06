@@ -18,11 +18,14 @@ Danach `http://localhost:8000` öffnen.
 - Ausgaben als monatlich, jährlich oder einmalig kennzeichnen
 - Einnahmen mit eigenen Kategorien und allen Abrechnungsrhythmen erfassen
 - Automatische monatliche und jährliche Wiederholungen ab dem Startdatum
+- Optionales Enddatum für die Laufzeit monatlicher und jährlicher Serien
 - Eigene Kategorien für Einnahmen und Ausgaben mit frei wählbarer Farbe
+- Zusätzliche Standardkategorien für Auto, Kleider, Ferien, Versicherungen, Gesundheit, Steuern und Abonnemente
 - Getrennte Ansichten für Übersicht, Transaktionen und Auswertungen
 - Monats- und Jahresfilter für die Buchungsansicht
 - Einmalige Buchungen und wiederkehrende Serien bearbeiten
 - Serienverwaltung mit zeitabhängigen Preisänderungen und gezielter Auswahl vergangener Buchungen
+- Vollständiges Löschen einer wiederkehrenden Serie einschließlich aller Vorkommen
 - Anpassbares Benutzerprofil mit Name und Initialen
 - Passwortgeschützter JSON-Export und -Import mit AES-256-GCM
 - AES-256-GCM-verschlüsselter lokaler Datenspeicher mit App-Sperre
@@ -31,13 +34,17 @@ Danach `http://localhost:8000` öffnen.
 - Monatliche und jährliche Salden aus Einnahmen und Ausgaben
 - Sparbetrag und Sparquote in der Jahresauswertung
 - Durchschnittliche Monatsausgaben für laufende und abgeschlossene Jahre
-- Jahresbudgets und jährliche Sparziele mit Fortschrittsanzeige
+- Jährliche Ausgabenbudgets und Sparziele mit Fortschrittsanzeige
+- Automatisches jährliches Ausgabenbudget aus monatlichem Ausgabenbudget × 12
+- Farblich klar getrennte Einnahmen (grün) und Ausgaben (rot)
+- Teuerungsanalyse wiederkehrender monatlicher und jährlicher Kosten
+- Monats- und Jahresvergleiche der Ausgaben pro Kategorie
 - Separate Kategorieauswertungen für Einnahmen und Ausgaben
 - Druckoptimierte Jahresauswertung
 - Getrennte Summen und Filter für den Abrechnungsrhythmus
 - Jahresauswertung mit allen zwölf Monaten, Jahressumme und Monatsdurchschnitt
 - Kategorieverteilung und stärkster Ausgabenmonat pro Jahr
-- Monatsbudget festlegen und Fortschritt verfolgen
+- Monatliches Ausgabenbudget festlegen und Fortschritt verfolgen
 - Automatische Auswertung nach Kategorien
 - Responsive Desktop- und Smartphone-Navigation
 - Persistenz im Browser über `localStorage`

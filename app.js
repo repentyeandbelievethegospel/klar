@@ -2,7 +2,14 @@ const CATEGORY_META = {
   Lebensmittel: { color: "#0d5c45", icon: "🛒" },
   Wohnen: { color: "#9aaf9e", icon: "⌂" },
   Mobilität: { color: "#e28b4a", icon: "↗" },
+  Auto: { color: "#b45d47", icon: "🚗" },
   Freizeit: { color: "#6b96a7", icon: "✦" },
+  Kleider: { color: "#b07a91", icon: "◇" },
+  Ferien: { color: "#d59a3b", icon: "☀" },
+  Versicherungen: { color: "#667d91", icon: "▣" },
+  Gesundheit: { color: "#4e8b79", icon: "+" },
+  Steuern: { color: "#7c6658", icon: "§" },
+  Abonnement: { color: "#776a9b", icon: "↻" },
   Sonstiges: { color: "#9c86ad", icon: "•" },
   Lohn: { color: "#0d5c45", icon: "+" },
   Bonus: { color: "#58a07a", icon: "✦" },
@@ -10,7 +17,7 @@ const CATEGORY_META = {
   Geschenk: { color: "#9c86ad", icon: "◇" },
 };
 
-const EXPENSE_CATEGORIES = ["Lebensmittel", "Wohnen", "Mobilität", "Freizeit", "Sonstiges"];
+const EXPENSE_CATEGORIES = ["Lebensmittel", "Wohnen", "Mobilität", "Auto", "Kleider", "Ferien", "Versicherungen", "Gesundheit", "Steuern", "Abonnement", "Freizeit", "Sonstiges"];
 const INCOME_CATEGORIES = ["Lohn", "Bonus", "Zinsen", "Geschenk", "Sonstiges"];
 
 const DEFAULT_EXPENSES = [
@@ -59,6 +66,7 @@ let expenses = (existingVault ? [] : storage.get("klar-expenses", DEFAULT_EXPENS
   type: "Ausgabe",
   period: "Einmalig",
   ...expense,
+  endDate: typeof expense.endDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(expense.endDate) ? expense.endDate : null,
   revisions: Array.isArray(expense.revisions) ? expense.revisions : [],
   overrides: expense.overrides && typeof expense.overrides === "object" ? expense.overrides : {},
   excludedDates: Array.isArray(expense.excludedDates) ? expense.excludedDates : [],
@@ -71,6 +79,8 @@ let activePeriod = "Alle";
 let activeEntryType = "Alle";
 let transactionPeriod = `month-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
 let reportYear = new Date().getFullYear();
+let comparisonMode = "month";
+let comparisonMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
 let activeView = "overview";
 let editingEntryId = null;
 let editingOccurrenceDate = null;
@@ -206,16 +216,19 @@ function isOccurrenceExcluded(entry, occurrenceDate) {
 function getNextOccurrenceDate(entry, fromDate = new Date()) {
   const start = new Date(`${entry.date}T12:00:00`);
   const today = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate(), 12);
-  if (start >= today) return entry.date;
+  const isWithinSeries = (dateString) => !entry.endDate || dateString <= entry.endDate;
+  if (start >= today) return isWithinSeries(entry.date) ? entry.date : null;
   if (entry.period === "Monatlich") {
     let candidate = dateAtNoon(today.getFullYear(), today.getMonth(), start.getDate());
     if (candidate < today) candidate = dateAtNoon(today.getFullYear(), today.getMonth() + 1, start.getDate());
-    return toDateString(candidate);
+    const candidateString = toDateString(candidate);
+    return isWithinSeries(candidateString) ? candidateString : null;
   }
   if (entry.period === "Jährlich") {
     let candidate = dateAtNoon(today.getFullYear(), start.getMonth(), start.getDate());
     if (candidate < today) candidate = dateAtNoon(today.getFullYear() + 1, start.getMonth(), start.getDate());
-    return toDateString(candidate);
+    const candidateString = toDateString(candidate);
+    return isWithinSeries(candidateString) ? candidateString : null;
   }
   return entry.date;
 }
@@ -226,7 +239,9 @@ function expandEntriesThrough(endDate = new Date()) {
 
   expenses.forEach((entry) => {
     const start = new Date(`${entry.date}T12:00:00`);
+    const seriesEnd = entry.endDate ? new Date(`${entry.endDate}T23:59:59`) : null;
     if (Number.isNaN(start.getTime()) || start > end) return;
+    if (seriesEnd && start > seriesEnd) return;
 
     if (entry.period === "Einmalig") {
       if (!isOccurrenceExcluded(entry, entry.date)) occurrences.push(createOccurrence(entry, entry.date));
@@ -238,7 +253,7 @@ function expandEntriesThrough(endDate = new Date()) {
       let month = start.getMonth();
       while (true) {
         const occurrenceDate = dateAtNoon(year, month, start.getDate());
-        if (occurrenceDate > end) break;
+        if (occurrenceDate > end || (seriesEnd && occurrenceDate > seriesEnd)) break;
         const occurrenceDateString = toDateString(occurrenceDate);
         if (!isOccurrenceExcluded(entry, occurrenceDateString)) occurrences.push(createOccurrence(entry, occurrenceDateString));
         month += 1;
@@ -250,7 +265,7 @@ function expandEntriesThrough(endDate = new Date()) {
     if (entry.period === "Jährlich") {
       for (let year = start.getFullYear(); year <= end.getFullYear(); year += 1) {
         const occurrenceDate = dateAtNoon(year, start.getMonth(), start.getDate());
-        if (occurrenceDate > end) break;
+        if (occurrenceDate > end || (seriesEnd && occurrenceDate > seriesEnd)) break;
         const occurrenceDateString = toDateString(occurrenceDate);
         if (!isOccurrenceExcluded(entry, occurrenceDateString)) occurrences.push(createOccurrence(entry, occurrenceDateString));
       }
@@ -481,24 +496,168 @@ function renderAnalytics() {
     total: "#annualIncomeDonutTotal",
     breakdown: "#incomeCategoryBreakdown",
   }, "Einnahmen");
+  renderRecurringInflation(reportYear, reportEnd, currentYear);
+  renderCategoryComparison();
+}
+
+function resolveRecurringRateAtDate(entry, dateString) {
+  const revision = (entry.revisions || [])
+    .filter((item) => item.effectiveDate <= dateString)
+    .sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate))
+    .at(-1) || {};
+  return { ...entry, ...revision };
+}
+
+function monthlyEquivalent(entry) {
+  return entry.period === "Jährlich" ? Number(entry.amount) / 12 : Number(entry.amount);
+}
+
+function renderRecurringInflation(year, reportEnd, currentYear) {
+  const analysisEnd = year > currentYear ? new Date(year, 11, 31, 12) : reportEnd;
+  const endString = toDateString(analysisEnd);
+  const recurringExpenses = expenses.filter((entry) => entry.type === "Ausgabe" && entry.period !== "Einmalig");
+  const baselineEnd = new Date(year - 1, 11, 31, 23, 59, 59);
+  const getLastOccurrences = (occurrences) => {
+    const result = new Map();
+    occurrences.filter((occurrence) => occurrence.type === "Ausgabe" && occurrence.period !== "Einmalig").forEach((occurrence) => {
+      const previous = result.get(occurrence.sourceId);
+      if (!previous || occurrence.date > previous.date) result.set(occurrence.sourceId, occurrence);
+    });
+    return result;
+  };
+  const baselineOccurrences = getLastOccurrences(expandEntriesThrough(baselineEnd));
+  const endOccurrences = getLastOccurrences(expandEntriesThrough(analysisEnd));
+  const yearStartString = `${year}-01-01`;
+  const comparable = recurringExpenses.filter((entry) => baselineOccurrences.has(entry.id) && endOccurrences.get(entry.id)?.date >= yearStartString && (!entry.endDate || entry.endDate >= endString));
+  const changes = comparable.map((entry) => {
+    const startEntry = baselineOccurrences.get(entry.id);
+    const endEntry = endOccurrences.get(entry.id);
+    const startAmount = monthlyEquivalent(startEntry);
+    const endAmount = monthlyEquivalent(endEntry);
+    return { entry, startAmount, endAmount, difference: endAmount - startAmount };
+  });
+  const startTotal = changes.reduce((sum, item) => sum + item.startAmount, 0);
+  const endTotal = changes.reduce((sum, item) => sum + item.endAmount, 0);
+  const difference = endTotal - startTotal;
+  const percentage = startTotal > 0 ? difference / startTotal * 100 : null;
+
+  $("#recurringCostStart").textContent = formatCurrency(startTotal);
+  $("#recurringCostEnd").textContent = formatCurrency(endTotal);
+  $("#recurringCostEndLabel").textContent = year === currentYear ? "Aktuell" : "Zum Jahresende";
+  $("#recurringInflationBadge").textContent = percentage === null ? "–" : `${percentage >= 0 ? "+" : ""}${percentage.toFixed(1)}%`;
+  $("#recurringInflationBadge").className = `inflation-badge ${difference > 0 ? "up" : difference < 0 ? "down" : ""}`;
+
+  const priceIncreases = changes.filter((item) => item.difference > .001).sort((a, b) => b.difference - a.difference);
+  const rows = [
+    ...priceIncreases.map((item) => `<div class="cost-change-row">
+      <div><strong>${escapeHtml(item.entry.description)}</strong><span>${formatCurrency(item.startAmount)} → ${formatCurrency(item.endAmount)} pro Monat</span></div>
+      <b class="cost-change-amount">+ ${formatCurrency(item.difference)}</b>
+      <b class="cost-change-percent">+${(item.difference / item.startAmount * 100).toFixed(1)}%</b>
+    </div>`),
+  ];
+  $("#recurringCostChanges").innerHTML = rows.length ? rows.join("") : `<p class="no-report-data">Keine teurer gewordenen Serien in diesem Jahr.</p>`;
+}
+
+function renderComparisonMonthOptions() {
+  const now = new Date();
+  const validDates = expenses.map((entry) => new Date(`${entry.date}T12:00:00`)).filter((date) => !Number.isNaN(date.getTime()));
+  const firstDate = validDates.length ? new Date(Math.min(...validDates)) : now;
+  const firstMonth = new Date(firstDate.getFullYear(), firstDate.getMonth(), 1);
+  const options = [];
+  let cursor = new Date(now.getFullYear(), now.getMonth(), 1);
+  while (cursor >= firstMonth) {
+    const value = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
+    options.push(`<option value="${value}">${MONTHS_LONG[cursor.getMonth()]} ${cursor.getFullYear()}</option>`);
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1);
+  }
+  $("#comparisonMonthSelect").innerHTML = options.join("");
+  if (![...$("#comparisonMonthSelect").options].some((option) => option.value === comparisonMonth)) comparisonMonth = options.length ? $("#comparisonMonthSelect").options[0].value : comparisonMonth;
+  $("#comparisonMonthSelect").value = comparisonMonth;
+}
+
+function expenseCategoriesForRange(startDate, endDate) {
+  const start = toDateString(startDate);
+  const end = toDateString(endDate);
+  const totals = {};
+  expandEntriesThrough(endDate)
+    .filter((entry) => entry.type === "Ausgabe" && entry.date >= start && entry.date <= end)
+    .forEach((entry) => { totals[entry.category] = (totals[entry.category] || 0) + Number(entry.amount); });
+  return totals;
+}
+
+function renderCategoryComparison() {
+  renderComparisonMonthOptions();
+  $("#comparisonMonthSelect").hidden = comparisonMode !== "month";
+  const now = new Date();
+  let currentStart;
+  let currentEnd;
+  let previousStart;
+  let previousEnd;
+  let currentLabel;
+  let previousLabel;
+
+  if (comparisonMode === "month") {
+    const [year, monthNumber] = comparisonMonth.split("-").map(Number);
+    const month = monthNumber - 1;
+    currentStart = new Date(year, month, 1, 12);
+    const isCurrentMonth = year === now.getFullYear() && month === now.getMonth();
+    currentEnd = isCurrentMonth ? now : new Date(year, month + 1, 0, 12);
+    previousStart = new Date(year, month - 1, 1, 12);
+    previousEnd = isCurrentMonth
+      ? dateAtNoon(previousStart.getFullYear(), previousStart.getMonth(), now.getDate())
+      : new Date(year, month, 0, 12);
+    currentLabel = `${MONTHS_SHORT[month]} ${year}`;
+    previousLabel = `${MONTHS_SHORT[previousStart.getMonth()]} ${previousStart.getFullYear()}`;
+    $("#comparisonSubtitle").textContent = `${MONTHS_LONG[month]} ${year} gegenüber ${MONTHS_LONG[previousStart.getMonth()]} ${previousStart.getFullYear()}${isCurrentMonth ? ", jeweils bis heute" : ""}`;
+  } else {
+    currentStart = new Date(reportYear, 0, 1, 12);
+    currentEnd = reportYear === now.getFullYear() ? now : new Date(reportYear, 11, 31, 12);
+    previousStart = new Date(reportYear - 1, 0, 1, 12);
+    previousEnd = reportYear === now.getFullYear()
+      ? dateAtNoon(reportYear - 1, now.getMonth(), now.getDate())
+      : new Date(reportYear - 1, 11, 31, 12);
+    currentLabel = String(reportYear);
+    previousLabel = String(reportYear - 1);
+    $("#comparisonSubtitle").textContent = reportYear === now.getFullYear() ? `${reportYear} gegenüber ${reportYear - 1}, jeweils bis heute` : `${reportYear} gegenüber ${reportYear - 1}`;
+  }
+
+  const currentTotals = expenseCategoriesForRange(currentStart, currentEnd);
+  const previousTotals = expenseCategoriesForRange(previousStart, previousEnd);
+  const categories = [...new Set([...Object.keys(currentTotals), ...Object.keys(previousTotals)])]
+    .sort((a, b) => Math.abs((currentTotals[b] || 0) - (previousTotals[b] || 0)) - Math.abs((currentTotals[a] || 0) - (previousTotals[a] || 0)));
+  const largestCategoryAmount = Math.max(1, ...categories.flatMap((category) => [currentTotals[category] || 0, previousTotals[category] || 0]));
+  $("#categoryComparisonBody").innerHTML = categories.length ? categories.map((category) => {
+    const current = currentTotals[category] || 0;
+    const previous = previousTotals[category] || 0;
+    const difference = current - previous;
+    const percentage = previous > 0 ? difference / previous * 100 : null;
+    const meta = CATEGORY_META[category] || CATEGORY_META.Sonstiges;
+    return `<article class="comparison-category-row">
+      <div class="comparison-category-name"><span class="legend-dot" style="background:${meta.color}"></span><strong>${escapeHtml(category)}</strong></div>
+      <div class="comparison-bars">
+        <div class="comparison-bar-row current"><span>${currentLabel}</span><div class="comparison-bar-track"><i style="width:${current / largestCategoryAmount * 100}%"></i></div><b>${formatCurrency(current)}</b></div>
+        <div class="comparison-bar-row"><span>${previousLabel}</span><div class="comparison-bar-track"><i style="width:${previous / largestCategoryAmount * 100}%"></i></div><b>${formatCurrency(previous)}</b></div>
+      </div>
+      <div class="comparison-difference ${difference > 0 ? "up" : difference < 0 ? "down" : ""}"><b>${difference > 0 ? "+" : difference < 0 ? "−" : ""}${formatCurrency(Math.abs(difference))}</b><small>${percentage === null ? "neue Ausgabe" : `${percentage >= 0 ? "+" : ""}${percentage.toFixed(1)}%`}</small></div>
+    </article>`;
+  }).join("") : `<p class="no-report-data">Keine Ausgaben in diesen Zeiträumen.</p>`;
 }
 
 function renderYearGoals(totalExpenses, balance) {
   const goals = yearlyGoals[reportYear] || {};
-  const annualBudget = Number(goals.annualBudget) || 0;
+  const hasExplicitAnnualBudget = Number(goals.annualBudget) > 0;
+  const annualBudget = hasExplicitAnnualBudget ? Number(goals.annualBudget) : budget * 12;
   const savingsBudget = Number(goals.savingsBudget) || 0;
   const savedAmount = Math.max(balance, 0);
 
-  $("#annualBudgetGoal").textContent = annualBudget ? formatCurrency(annualBudget) : "Nicht festgelegt";
+  $("#annualBudgetGoal").textContent = `${formatCurrency(annualBudget)}${hasExplicitAnnualBudget ? "" : " · automatisch"}`;
   const annualPercent = annualBudget ? totalExpenses / annualBudget * 100 : 0;
   $("#annualBudgetProgress").style.width = `${Math.min(annualPercent, 100)}%`;
   $("#annualBudgetProgress").classList.toggle("over", annualBudget > 0 && totalExpenses > annualBudget);
-  $("#annualBudgetPercent").textContent = annualBudget ? `${annualPercent.toFixed(1)}%` : "–";
-  $("#annualBudgetStatus").textContent = annualBudget
-    ? totalExpenses <= annualBudget
-      ? `${formatCurrency(annualBudget - totalExpenses)} verfügbar`
-      : `${formatCurrency(totalExpenses - annualBudget)} über Budget`
-    : "Noch kein Jahresbudget vorhanden";
+  $("#annualBudgetPercent").textContent = `${annualPercent.toFixed(1)}%`;
+  $("#annualBudgetStatus").textContent = totalExpenses <= annualBudget
+    ? `${formatCurrency(annualBudget - totalExpenses)} verfügbar`
+    : `${formatCurrency(totalExpenses - annualBudget)} über Budget`;
 
   $("#savingsBudgetGoal").textContent = savingsBudget ? formatCurrency(savingsBudget) : "Nicht festgelegt";
   const savingsPercent = savingsBudget ? savedAmount / savingsBudget * 100 : 0;
@@ -552,7 +711,11 @@ function renderDonut(sums, total) {
     return segment;
   }).join("");
   $("#categoryLegend").innerHTML = sums.slice(0, 5).map(({ category, amount }) =>
-    `<div class="legend-row"><span class="legend-dot" style="background:${CATEGORY_META[category].color}"></span><span>${escapeHtml(category)}</span><b>${total ? Math.round(amount / total * 100) : 0}%</b></div>`
+    `<div class="legend-row">
+      <span class="legend-dot" style="background:${CATEGORY_META[category].color}"></span>
+      <span>${escapeHtml(category)}</span>
+      <span class="legend-value"><b>${total ? Math.round(amount / total * 100) : 0}%</b><small>${formatCurrency(amount)}</small></span>
+    </div>`
   ).join("");
 }
 
@@ -597,11 +760,22 @@ function showToast(message) {
 function showSecurityGate(mode) {
   $("#setupSecurityPanel").hidden = mode !== "setup";
   $("#unlockSecurityPanel").hidden = mode !== "unlock";
+  $("#resetSecurityPanel").hidden = true;
   $("#unlockError").hidden = true;
   $("#securityModal .security-modal").setAttribute("aria-labelledby", mode === "setup" ? "securityModalTitle" : "unlockSecurityTitle");
   $("#securityModal").hidden = false;
   document.body.style.overflow = "hidden";
   setTimeout(() => $(mode === "setup" ? '#setupSecurityForm [name="password"]' : '#unlockSecurityForm [name="password"]')?.focus(), 50);
+}
+
+function showSecurityReset() {
+  $("#setupSecurityPanel").hidden = true;
+  $("#unlockSecurityPanel").hidden = true;
+  $("#resetSecurityPanel").hidden = false;
+  $("#securityModal .security-modal").setAttribute("aria-labelledby", "resetSecurityTitle");
+  $("#resetSecurityForm").reset();
+  $("#resetSecurityConfirmButton").disabled = true;
+  setTimeout(() => $('#resetSecurityForm [name="confirmation"]')?.focus(), 50);
 }
 
 $("#setupSecurityForm").addEventListener("submit", async (event) => {
@@ -665,6 +839,29 @@ $("#unlockSecurityForm").addEventListener("submit", async (event) => {
   }
 });
 
+$("#showSecurityResetButton").addEventListener("click", showSecurityReset);
+$("#cancelSecurityResetButton").addEventListener("click", () => showSecurityGate("unlock"));
+$("#resetSecurityForm [name=confirmation]").addEventListener("input", (event) => {
+  $("#resetSecurityConfirmButton").disabled = event.target.value.trim().toLocaleUpperCase("de-CH") !== "LÖSCHEN";
+});
+$("#resetSecurityForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const confirmation = new FormData(event.currentTarget).get("confirmation").trim().toLocaleUpperCase("de-CH");
+  if (confirmation !== "LÖSCHEN") return;
+  Object.keys(localStorage).filter((key) => key.startsWith("klar-")).forEach((key) => localStorage.removeItem(key));
+  expenses = [];
+  budget = 3000;
+  yearlyGoals = {};
+  profile = { name: "Benutzer", initials: "B" };
+  replaceCustomCategories([]);
+  vaultPassword = null;
+  isVaultUnlocked = false;
+  setGreeting();
+  render();
+  showSecurityGate("setup");
+  showToast("Der alte Datenspeicher wurde gelöscht. Lege jetzt ein neues Passwort fest.");
+});
+
 function showView(view, updateHash = true) {
   const validViews = ["overview", "transactions", "analytics"];
   activeView = validViews.includes(view) ? view : "overview";
@@ -695,6 +892,7 @@ function prepareNewEntry() {
   $("#expenseForm [name=date]").readOnly = false;
   $$('#expenseForm [name="period"]').forEach((input) => { input.disabled = false; });
   $("#expenseForm .cycle-fieldset").classList.remove("locked");
+  $("#entryDateLabel").textContent = "Datum";
   $("#expenseModalEyebrow").textContent = "NEUER EINTRAG";
   $("#expenseModalTitle").textContent = "Eintrag hinzufügen";
   updateEntryForm();
@@ -704,6 +902,7 @@ function prepareNewEntry() {
 function prepareEditEntry(entry, occurrenceDate = entry.date) {
   editingEntryId = entry.id;
   editingOccurrenceDate = occurrenceDate;
+  const isSeries = entry.period !== "Einmalig";
   const displayedEntry = entry.period === "Einmalig" ? entry : resolveEntryAtDate(entry, occurrenceDate);
   const form = $("#expenseForm");
   form.reset();
@@ -711,13 +910,15 @@ function prepareEditEntry(entry, occurrenceDate = entry.date) {
   updateEntryForm();
   form.elements.description.value = displayedEntry.description;
   form.elements.amount.value = displayedEntry.amount;
-  form.elements.date.value = occurrenceDate;
+  form.elements.date.value = isSeries ? entry.date : occurrenceDate;
+  form.elements.endDate.value = entry.endDate || "";
   form.elements.category.value = displayedEntry.category;
   form.querySelector(`[name="period"][value="${entry.period}"]`).checked = true;
-  const isSeries = entry.period !== "Einmalig";
-  form.elements.date.readOnly = isSeries;
+  updatePeriodFields();
+  form.elements.date.readOnly = false;
   $$('#expenseForm [name="period"]').forEach((input) => { input.disabled = isSeries; });
   $("#expenseForm .cycle-fieldset").classList.toggle("locked", isSeries);
+  $("#entryDateLabel").textContent = isSeries ? "Serienbeginn" : "Datum";
   $("#expenseModalEyebrow").textContent = isSeries ? "WIEDERKEHRENDER EINTRAG" : "BUCHUNG";
   $("#expenseModalTitle").textContent = isSeries ? "Serie bearbeiten" : "Eintrag bearbeiten";
   $("#entrySubmitButton").textContent = "Änderungen speichern";
@@ -728,15 +929,20 @@ function renderSeriesList() {
   const series = expenses.filter((entry) => entry.period !== "Einmalig").sort((a, b) => a.description.localeCompare(b.description, "de"));
   $("#seriesList").innerHTML = series.length ? series.map((entry) => {
     const nextDate = getNextOccurrenceDate(entry);
-    const current = resolveEntryAtDate(entry, nextDate);
+    const referenceDate = nextDate || entry.endDate || entry.date;
+    const current = resolveEntryAtDate(entry, referenceDate);
     const meta = CATEGORY_META[current.category] || CATEGORY_META.Sonstiges;
     return `<article class="series-item">
       <span class="series-item-icon" style="color:${meta.color};background:${meta.color}18">${escapeHtml(meta.icon)}</span>
       <div class="series-item-info">
-        <strong>${escapeHtml(current.description)} · ${current.type === "Einnahme" ? "+" : "−"} ${formatCurrency(current.amount)}</strong>
-        <span>${entry.period} · nächste Fälligkeit ${new Intl.DateTimeFormat("de-CH", { day: "2-digit", month: "long", year: "numeric" }).format(new Date(`${nextDate}T12:00:00`))}</span>
+        <strong class="${current.type === "Einnahme" ? "income-text" : "expense-text"}">${escapeHtml(current.description)} · ${current.type === "Einnahme" ? "+" : "−"} ${formatCurrency(current.amount)}</strong>
+        <span>${entry.period} · Laufzeit ${new Intl.DateTimeFormat("de-CH").format(new Date(`${entry.date}T12:00:00`))} – ${entry.endDate ? new Intl.DateTimeFormat("de-CH").format(new Date(`${entry.endDate}T12:00:00`)) : "unbegrenzt"}</span>
+        <span>${nextDate ? `Nächste Fälligkeit ${new Intl.DateTimeFormat("de-CH", { day: "2-digit", month: "long", year: "numeric" }).format(new Date(`${nextDate}T12:00:00`))}` : `Beendet am ${new Intl.DateTimeFormat("de-CH", { day: "2-digit", month: "long", year: "numeric" }).format(new Date(`${entry.endDate}T12:00:00`))}`}</span>
       </div>
-      <div class="series-item-actions"><button type="button" data-edit-series="${entry.id}" data-occurrence-date="${nextDate}">Bearbeiten</button></div>
+      <div class="series-item-actions">
+        <button type="button" data-edit-series="${entry.id}" data-occurrence-date="${referenceDate}">Bearbeiten</button>
+        <button class="series-delete-button" type="button" data-delete-series="${entry.id}">Löschen</button>
+      </div>
     </article>`;
   }).join("") : `<div class="empty-state"><span class="empty-icon">↻</span><h3>Noch keine Serien.</h3><p>Monatliche und jährliche Buchungen erscheinen hier.</p></div>`;
 }
@@ -754,8 +960,12 @@ function prepareSeriesEditWizard(entry, occurrenceDate) {
       <input type="checkbox" name="pastOccurrence" value="${occurrence.date}" />
       <span>${new Intl.DateTimeFormat("de-CH", { day: "2-digit", month: "long", year: "numeric" }).format(new Date(`${occurrence.date}T12:00:00`))} · ${formatCurrency(occurrence.amount)}</span>
     </label>`).join("") : `<p class="past-occurrence-empty">Es gibt noch keine früheren Buchungen dieser Serie.</p>`;
-  $('#seriesEditForm [name="scope"][value="future"]').checked = true;
-  $("#pastSelection").hidden = false;
+  const startDateChanged = pendingSeriesEdit?.seriesStartDate !== entry.date;
+  $("#seriesAllHint").textContent = startDateChanged ? "Ein geänderter Serienbeginn gilt immer für die gesamte Serie" : "Auch alle vergangenen Buchungen ändern";
+  $("#futureScopeOption").hidden = startDateChanged;
+  $('#seriesEditForm [name="scope"][value="future"]').checked = !startDateChanged;
+  $('#seriesEditForm [name="scope"][value="all"]').checked = startDateChanged;
+  $("#pastSelection").hidden = startDateChanged;
   $("#togglePastEntries").textContent = "Alle auswählen";
   openModal("#seriesEditModal");
 }
@@ -764,15 +974,15 @@ function saveSeriesChanges(scope, selectedPastDates) {
   if (!pendingSeriesEdit) return;
   expenses = expenses.map((entry) => {
     if (entry.id !== pendingSeriesEdit.sourceId) return entry;
-    const { changes, occurrenceDate } = pendingSeriesEdit;
+    const { changes, occurrenceDate, seriesStartDate, seriesEndDate } = pendingSeriesEdit;
     if (scope === "all") {
-      return { ...entry, ...changes, revisions: [], overrides: {} };
+      return { ...entry, ...changes, date: seriesStartDate, endDate: seriesEndDate, revisions: [], overrides: {}, excludedDates: seriesStartDate !== entry.date ? [] : entry.excludedDates };
     }
     const revisions = [...(entry.revisions || []).filter((revision) => revision.effectiveDate !== occurrenceDate), { effectiveDate: occurrenceDate, ...changes }]
       .sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
     const overrides = { ...(entry.overrides || {}) };
     selectedPastDates.forEach((date) => { overrides[date] = { ...changes }; });
-    return { ...entry, revisions, overrides };
+    return { ...entry, endDate: seriesEndDate, revisions, overrides };
   });
   storage.set("klar-expenses", expenses);
   pendingSeriesEdit = null;
@@ -808,17 +1018,17 @@ function updateDeleteScopeUI() {
   const content = {
     all: {
       title: "Wirklich alles löschen?",
-      description: "Alle Buchungen, wiederkehrenden Serien, Kategorien, Budget- und Profildaten werden dauerhaft von diesem Gerät entfernt. Ein vorhandenes verschlüsseltes Backup bleibt davon unberührt.",
+      description: "Alle Buchungen, wiederkehrenden Serien, Kategorien, Budgeteinstellungen und Profildaten werden dauerhaft von diesem Gerät entfernt. Ein vorhandenes verschlüsseltes Backup bleibt davon unberührt.",
       button: "Alle Daten endgültig löschen",
     },
     month: {
       title: "Monat dauerhaft löschen?",
-      description: "Alle Buchungen des ausgewählten Monats werden entfernt. Wiederkehrende Serien, Profil, Budget und Kategorien bleiben bestehen.",
+      description: "Alle Buchungen des ausgewählten Monats werden entfernt. Wiederkehrende Serien, Profil, Budgets, Sparziele und Kategorien bleiben bestehen.",
       button: "Ausgewählten Monat löschen",
     },
     year: {
       title: "Jahr dauerhaft löschen?",
-      description: "Alle Buchungen des ausgewählten Jahres werden entfernt. Wiederkehrende Serien, Profil, Budget und Kategorien bleiben bestehen.",
+      description: "Alle Buchungen des ausgewählten Jahres werden entfernt. Wiederkehrende Serien, Profil, Budgets, Sparziele und Kategorien bleiben bestehen.",
       button: "Ausgewähltes Jahr löschen",
     },
   }[scope];
@@ -855,12 +1065,22 @@ $("#seriesManagerButton").addEventListener("click", () => {
   openModal("#seriesModal");
 });
 $("#seriesList").addEventListener("click", (event) => {
-  const button = event.target.closest("[data-edit-series]");
-  if (!button) return;
-  const entry = expenses.find((item) => item.id === Number(button.dataset.editSeries));
-  if (!entry) return;
-  closeModal($("#seriesModal"));
-  prepareEditEntry(entry, button.dataset.occurrenceDate);
+  const editButton = event.target.closest("[data-edit-series]");
+  if (editButton) {
+    const entry = expenses.find((item) => item.id === Number(editButton.dataset.editSeries));
+    if (!entry) return;
+    closeModal($("#seriesModal"));
+    prepareEditEntry(entry, editButton.dataset.occurrenceDate);
+    return;
+  }
+  const deleteButton = event.target.closest("[data-delete-series]");
+  if (!deleteButton) return;
+  const entry = expenses.find((item) => item.id === Number(deleteButton.dataset.deleteSeries));
+  if (!entry || !window.confirm(`Serie „${entry.description}“ vollständig löschen? Alle zugehörigen Buchungen werden entfernt.`)) return;
+  expenses = expenses.filter((item) => item.id !== entry.id);
+  storage.set("klar-expenses", expenses);
+  render();
+  showToast(`Serie „${entry.description}“ wurde vollständig gelöscht.`);
 });
 $("#profileButton").addEventListener("click", () => {
   $("#profileForm [name=name]").value = profile.name;
@@ -913,6 +1133,12 @@ $("#expenseForm").addEventListener("submit", (event) => {
   event.preventDefault();
   const data = new FormData(event.currentTarget);
   const sourceEntry = editingEntryId === null ? null : expenses.find((entry) => entry.id === editingEntryId);
+  const period = data.get("period") || sourceEntry?.period;
+  const endDate = period !== "Einmalig" && data.get("endDate") ? data.get("endDate") : null;
+  if (endDate && endDate < data.get("date")) {
+    showToast("Das Serienende darf nicht vor dem Startdatum liegen.");
+    return;
+  }
   const updatedEntry = {
     id: editingEntryId || Date.now(),
     description: data.get("description").trim(),
@@ -920,7 +1146,8 @@ $("#expenseForm").addEventListener("submit", (event) => {
     date: data.get("date"),
     category: data.get("category"),
     type: data.get("type"),
-    period: data.get("period") || sourceEntry?.period,
+    period,
+    endDate,
     revisions: sourceEntry?.revisions || [],
     overrides: sourceEntry?.overrides || {},
     excludedDates: sourceEntry?.excludedDates || [],
@@ -930,6 +1157,8 @@ $("#expenseForm").addEventListener("submit", (event) => {
     pendingSeriesEdit = {
       sourceId: sourceEntry.id,
       occurrenceDate: editingOccurrenceDate,
+      seriesStartDate: updatedEntry.date,
+      seriesEndDate: endDate,
       changes: {
         description: updatedEntry.description,
         amount: updatedEntry.amount,
@@ -970,7 +1199,7 @@ $("#budgetForm").addEventListener("submit", (event) => {
   storage.set("klar-yearly-goals", yearlyGoals);
   closeModals();
   render();
-  showToast("Budgets und Sparziel wurden aktualisiert.");
+  showToast("Ausgabenbudgets und Sparziel wurden aktualisiert.");
 });
 
 $$('#seriesEditForm [name="scope"]').forEach((input) => input.addEventListener("change", () => {
@@ -1159,7 +1388,9 @@ function validateBackupPayload(payload) {
     const excludedDates = Array.isArray(entry.excludedDates)
       ? [...new Set(entry.excludedDates.filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)))]
       : [];
-    return { id: Number(entry.id) || Date.now() + Math.random(), description: entry.description.slice(0, 40), amount, category: entry.category.slice(0, 24), type: entry.type, period: entry.period, date: entry.date, revisions, overrides, excludedDates };
+    const endDate = typeof entry.endDate === "string" && /^\d{4}-\d{2}-\d{2}$/.test(entry.endDate) ? entry.endDate : null;
+    if (endDate && endDate < entry.date) throw new Error("invalid-series-end");
+    return { id: Number(entry.id) || Date.now() + Math.random(), description: entry.description.slice(0, 40), amount, category: entry.category.slice(0, 24), type: entry.type, period: entry.period, date: entry.date, endDate, revisions, overrides, excludedDates };
   });
   const builtInNames = new Set([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES].map((name) => name.toLocaleLowerCase("de")));
   const seenNames = new Set();
@@ -1261,12 +1492,24 @@ $("#entryTypeFilter").addEventListener("click", (event) => {
 });
 
 $$('#expenseForm input[name="type"]').forEach((input) => input.addEventListener("change", updateEntryForm));
+$$('#expenseForm input[name="period"]').forEach((input) => input.addEventListener("change", updatePeriodFields));
+$("#expenseForm [name=date]").addEventListener("change", updatePeriodFields);
 
 function updateEntryForm() {
   const type = $('#expenseForm input[name="type"]:checked').value;
   const categories = getCategories(type);
   $("#categorySelect").innerHTML = categories.map((category) => `<option value="${escapeHtml(category)}">${escapeHtml(category)}</option>`).join("");
   $("#entrySubmitButton").textContent = editingEntryId !== null ? "Änderungen speichern" : type === "Einnahme" ? "Einnahme speichern" : "Ausgabe speichern";
+  updatePeriodFields();
+}
+
+function updatePeriodFields() {
+  const period = $('#expenseForm input[name="period"]:checked')?.value || "Einmalig";
+  const isSeries = period !== "Einmalig";
+  $("#seriesEndDateField").hidden = !isSeries;
+  $("#entryDateLabel").textContent = isSeries ? (editingEntryId !== null ? "Serienbeginn" : "Startdatum") : "Datum";
+  $("#expenseForm [name=endDate]").min = $("#expenseForm [name=date]").value || "";
+  if (!isSeries) $("#expenseForm [name=endDate]").value = "";
 }
 
 function renderCustomCategories() {
@@ -1352,6 +1595,17 @@ $("#transactionPeriodSelect").addEventListener("change", (event) => {
 $("#yearSelect").addEventListener("change", (event) => {
   reportYear = Number(event.target.value);
   renderAnalytics();
+});
+$("#comparisonModeToggle").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-comparison-mode]");
+  if (!button) return;
+  comparisonMode = button.dataset.comparisonMode;
+  $$("#comparisonModeToggle button").forEach((item) => item.classList.toggle("active", item === button));
+  renderCategoryComparison();
+});
+$("#comparisonMonthSelect").addEventListener("change", (event) => {
+  comparisonMonth = event.target.value;
+  renderCategoryComparison();
 });
 $("#printAnalyticsButton").addEventListener("click", () => window.print());
 $$('[data-close-modal]').forEach((button) => button.addEventListener("click", () => closeModal(button.closest(".modal-backdrop"))));

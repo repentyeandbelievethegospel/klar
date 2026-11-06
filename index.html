@@ -42,7 +42,7 @@
           </a>
           <button class="nav-item" id="desktopBudgetButton" type="button">
             <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v18M17 7.5c0-2-1.9-3.5-5-3.5S7 5.2 7 7.5c0 5 10 2 10 7 0 2.3-2 3.5-5 3.5s-5-1.5-5-3.5"/></svg>
-            Budget
+            Budgets
           </button>
         </nav>
 
@@ -119,10 +119,10 @@
 
               <div class="budget-progress-wrap">
                 <div class="budget-labels">
-                  <span>Monatsbudget</span>
+                  <span>Monatliches Ausgabenbudget</span>
                   <span><b id="budgetUsed">CHF 0</b> von <button id="budgetAmountButton" type="button">CHF 3'000</button></span>
                 </div>
-                <div class="budget-track" role="progressbar" aria-label="Verbrauchtes Monatsbudget" aria-valuemin="0" aria-valuemax="100">
+                <div class="budget-track" role="progressbar" aria-label="Verbrauchtes monatliches Ausgabenbudget" aria-valuemin="0" aria-valuemax="100">
                   <span id="budgetProgress"></span>
                 </div>
               </div>
@@ -212,11 +212,11 @@
             <div class="analytics-stats">
               <article>
                 <span>Ausgaben im Jahr</span>
-                <strong id="annualTotal">CHF 0.00</strong>
+                <strong class="expense-text" id="annualTotal">CHF 0.00</strong>
               </article>
               <article>
                 <span>Ø Monatsausgaben</span>
-                <strong id="averageMonthlyExpenses">CHF 0.00</strong>
+                <strong class="expense-text" id="averageMonthlyExpenses">CHF 0.00</strong>
               </article>
               <article>
                 <span>Einnahmen im Jahr</span>
@@ -235,15 +235,15 @@
             <div class="year-goals">
               <article class="goal-card">
                 <div class="goal-card-heading">
-                  <div><span>Jahresbudget</span><strong id="annualBudgetGoal">Nicht festgelegt</strong></div>
+                  <div><span>Jährliches Ausgabenbudget</span><strong id="annualBudgetGoal">Nicht festgelegt</strong></div>
                   <button class="goal-edit-button" type="button" data-open-budget>Bearbeiten</button>
                 </div>
                 <div class="goal-progress-track"><span id="annualBudgetProgress"></span></div>
-                <div class="goal-card-foot"><span id="annualBudgetStatus">Noch kein Jahresbudget vorhanden</span><b id="annualBudgetPercent">–</b></div>
+                <div class="goal-card-foot"><span id="annualBudgetStatus">Noch kein Ausgabenbudget vorhanden</span><b id="annualBudgetPercent">–</b></div>
               </article>
               <article class="goal-card savings-goal-card">
                 <div class="goal-card-heading">
-                  <div><span>Sparziel</span><strong id="savingsBudgetGoal">Nicht festgelegt</strong></div>
+                  <div><span>Jährliches Sparziel</span><strong id="savingsBudgetGoal">Nicht festgelegt</strong></div>
                   <button class="goal-edit-button" type="button" data-open-budget>Bearbeiten</button>
                 </div>
                 <div class="goal-progress-track savings"><span id="savingsBudgetProgress"></span></div>
@@ -285,7 +285,7 @@
                         </svg>
                         <div><strong id="annualExpenseDonutTotal">0</strong><span>CHF Total</span></div>
                       </div>
-                      <div class="category-breakdown" id="expenseCategoryBreakdown"></div>
+                      <div class="category-breakdown expense-breakdown" id="expenseCategoryBreakdown"></div>
                     </div>
                   </section>
 
@@ -299,10 +299,46 @@
                         </svg>
                         <div><strong id="annualIncomeDonutTotal">0</strong><span>CHF Total</span></div>
                       </div>
-                      <div class="category-breakdown" id="incomeCategoryBreakdown"></div>
+                      <div class="category-breakdown income-breakdown" id="incomeCategoryBreakdown"></div>
                     </div>
                   </section>
                 </div>
+              </article>
+            </div>
+
+            <div class="insights-grid">
+              <article class="report-card recurring-inflation-report">
+                <div class="report-heading">
+                  <div>
+                    <h3>Teuerung wiederkehrender Kosten</h3>
+                    <p>Monatliche Belastung bestehender Serien im gewählten Jahr</p>
+                  </div>
+                  <span class="inflation-badge" id="recurringInflationBadge">–</span>
+                </div>
+                <div class="inflation-summary">
+                  <div><span>Zu Jahresbeginn</span><strong id="recurringCostStart">CHF 0.00</strong></div>
+                  <span class="inflation-arrow">→</span>
+                  <div><span id="recurringCostEndLabel">Aktuell</span><strong id="recurringCostEnd">CHF 0.00</strong></div>
+                </div>
+                <div class="cost-change-header"><span>Serie</span><span>Mehrkosten</span><span>Teuerung</span></div>
+                <div class="cost-change-list" id="recurringCostChanges"></div>
+              </article>
+
+              <article class="report-card category-comparison-report">
+                <div class="report-heading comparison-heading">
+                  <div>
+                    <h3>Ausgaben nach Kategorie vergleichen</h3>
+                    <p id="comparisonSubtitle">Aktueller Monat gegenüber Vormonat</p>
+                  </div>
+                  <div class="comparison-controls">
+                    <div class="mini-toggle" id="comparisonModeToggle">
+                      <button class="active" type="button" data-comparison-mode="month">Monat</button>
+                      <button type="button" data-comparison-mode="year">Jahr</button>
+                    </div>
+                    <select id="comparisonMonthSelect" aria-label="Vergleichsmonat auswählen"></select>
+                  </div>
+                </div>
+                <div class="comparison-list" id="categoryComparisonBody"></div>
               </article>
             </div>
           </section>
@@ -323,7 +359,7 @@
         </button>
         <button id="mobileBudgetButton" type="button">
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 3v18M17 7.5c0-2-1.9-3.5-5-3.5S7 5.2 7 7.5c0 5 10 2 10 7 0 2.3-2 3.5-5 3.5s-5-1.5-5-3.5"/></svg>
-          <span>Budget</span>
+          <span>Budgets</span>
         </button>
         <a href="#analytics" data-view-link="analytics">
           <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M5 20V10m7 10V4m7 16v-7"/></svg>
@@ -365,17 +401,29 @@
               Betrag (CHF)
               <input name="amount" type="number" placeholder="0.00" min="0.05" step="0.05" inputmode="decimal" required />
             </label>
-            <label>
-              Datum
+            <label id="entryDateField">
+              <span id="entryDateLabel">Datum</span>
               <input name="date" type="date" required />
             </label>
           </div>
+          <label id="seriesEndDateField" hidden>
+            Ende der Serie (optional)
+            <input name="endDate" type="date" />
+            <small class="field-help">Leer lassen für eine unbegrenzte Serie.</small>
+          </label>
           <label>
             <span class="label-with-action">Kategorie <button id="formManageCategoriesButton" type="button">Verwalten</button></span>
             <select name="category" id="categorySelect" required>
               <option value="Lebensmittel">Lebensmittel</option>
               <option value="Wohnen">Wohnen</option>
               <option value="Mobilität">Mobilität</option>
+              <option value="Auto">Auto</option>
+              <option value="Kleider">Kleider</option>
+              <option value="Ferien">Ferien</option>
+              <option value="Versicherungen">Versicherungen</option>
+              <option value="Gesundheit">Gesundheit</option>
+              <option value="Steuern">Steuern</option>
+              <option value="Abonnement">Abonnement</option>
               <option value="Freizeit">Freizeit</option>
               <option value="Sonstiges">Sonstiges</option>
             </select>
@@ -408,13 +456,13 @@
         <div class="modal-header">
           <div>
             <p class="eyebrow">MONATSZIEL</p>
-            <h2 id="budgetModalTitle">Budget festlegen</h2>
+            <h2 id="budgetModalTitle">Budgets & Sparziel</h2>
           </div>
           <button class="modal-close" type="button" data-close-modal aria-label="Schließen">×</button>
         </div>
         <form id="budgetForm">
           <label>
-            Monatsbudget (CHF)
+            Monatliches Ausgabenbudget (CHF)
             <input name="budget" type="number" min="1" step="1" inputmode="decimal" required />
           </label>
           <div class="budget-year-section">
@@ -424,17 +472,17 @@
             </label>
             <div class="form-grid">
               <label>
-                Jahresbudget (CHF)
+                Jährliches Ausgabenbudget (CHF)
                 <input name="annualBudget" type="number" min="0" step="1" inputmode="decimal" placeholder="z. B. 36'000" />
               </label>
               <label>
-                Sparziel (CHF)
+                Jährliches Sparziel (CHF)
                 <input name="savingsBudget" type="number" min="0" step="1" inputmode="decimal" placeholder="z. B. 12'000" />
               </label>
             </div>
-            <p class="form-help">Leere Felder entfernen das Ziel für das ausgewählte Jahr.</p>
+            <p class="form-help">Ohne eigenen Jahreswert gilt automatisch monatliches Ausgabenbudget × 12. Ein leeres Sparziel entfernt das Ziel.</p>
           </div>
-          <button class="primary-button form-submit" type="submit">Budget aktualisieren</button>
+          <button class="primary-button form-submit" type="submit">Budgets & Sparziel speichern</button>
         </form>
       </section>
     </div>
@@ -465,13 +513,13 @@
         </div>
         <form id="seriesEditForm">
           <div class="series-scope-options">
-            <label>
+            <label id="futureScopeOption">
               <input type="radio" name="scope" value="future" checked />
               <span><b>Ab dieser Buchung</b><small id="seriesFutureHint">Diese und alle zukünftigen Buchungen</small></span>
             </label>
             <label>
               <input type="radio" name="scope" value="all" />
-              <span><b>Gesamte Serie</b><small>Auch alle vergangenen Buchungen ändern</small></span>
+              <span><b>Gesamte Serie</b><small id="seriesAllHint">Auch alle vergangenen Buchungen ändern</small></span>
             </label>
           </div>
           <div class="past-selection" id="pastSelection">
@@ -592,7 +640,7 @@
         <section class="danger-section">
           <div>
             <h3>Alle Daten löschen</h3>
-            <p>Buchungen, Serien, Kategorien, Budget und Profil dauerhaft entfernen.</p>
+            <p>Buchungen, Serien, Kategorien, Budgeteinstellungen und Profil dauerhaft entfernen.</p>
           </div>
           <button class="danger-button" id="openDeleteAllButton" type="button">Daten löschen</button>
         </section>
@@ -609,7 +657,7 @@
           </div>
           <button class="modal-close" type="button" data-close-modal aria-label="Schließen">×</button>
         </div>
-        <p class="delete-all-description" id="deleteAllDescription">Alle Buchungen, wiederkehrenden Serien, Kategorien, Budget- und Profildaten werden dauerhaft von diesem Gerät entfernt. Ein vorhandenes verschlüsseltes Backup bleibt davon unberührt.</p>
+        <p class="delete-all-description" id="deleteAllDescription">Alle Buchungen, wiederkehrenden Serien, Kategorien, Budgeteinstellungen und Profildaten werden dauerhaft von diesem Gerät entfernt. Ein vorhandenes verschlüsseltes Backup bleibt davon unberührt.</p>
         <form id="deleteAllForm">
           <fieldset class="delete-scope-fieldset">
             <legend>Was möchtest du löschen?</legend>
