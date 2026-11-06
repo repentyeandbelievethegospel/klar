@@ -26,25 +26,46 @@ const DEFAULT_EXPENSES = [
 
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
+const VAULT_KEY = "klar-vault";
+const PROTECTED_STORAGE_KEYS = new Set(["klar-expenses", "klar-budget", "klar-yearly-goals", "klar-profile", "klar-custom-categories"]);
+const existingVault = localStorage.getItem(VAULT_KEY);
+let isVaultUnlocked = false;
+let vaultPassword = null;
+let vaultWriteChain = Promise.resolve();
 const storage = {
   get(key, fallback) {
     try { return JSON.parse(localStorage.getItem(key)) ?? fallback; } catch { return fallback; }
   },
-  set(key, value) { localStorage.setItem(key, JSON.stringify(value)); },
+  set(key, value) {
+    if (isVaultUnlocked && PROTECTED_STORAGE_KEYS.has(key)) {
+      queueVaultPersist();
+      return;
+    }
+    localStorage.setItem(key, JSON.stringify(value));
+  },
 };
 
-let customCategories = storage.get("klar-custom-categories", []);
+let customCategories = existingVault ? [] : storage.get("klar-custom-categories", []);
 if (!Array.isArray(customCategories)) customCategories = [];
 customCategories.forEach((category) => {
   CATEGORY_META[category.name] = { color: category.color, icon: category.name.charAt(0).toUpperCase() };
 });
-let profile = storage.get("klar-profile", { name: "Lea", initials: "LM" });
+let profile = existingVault ? { name: "Benutzer", initials: "B" } : storage.get("klar-profile", { name: "Lea", initials: "LM" });
 if (!profile || typeof profile.name !== "string" || typeof profile.initials !== "string") profile = { name: "Lea", initials: "LM" };
 profile.name = profile.name.trim().slice(0, 40) || "Lea";
 profile.initials = profile.initials.trim().slice(0, 3).toUpperCase() || "LM";
 
-let expenses = storage.get("klar-expenses", DEFAULT_EXPENSES).map((expense) => ({ type: "Ausgabe", period: "Einmalig", ...expense }));
-let budget = storage.get("klar-budget", 3000);
+let expenses = (existingVault ? [] : storage.get("klar-expenses", DEFAULT_EXPENSES)).map((expense) => ({
+  type: "Ausgabe",
+  period: "Einmalig",
+  ...expense,
+  revisions: Array.isArray(expense.revisions) ? expense.revisions : [],
+  overrides: expense.overrides && typeof expense.overrides === "object" ? expense.overrides : {},
+  excludedDates: Array.isArray(expense.excludedDates) ? expense.excludedDates : [],
+}));
+let budget = existingVault ? 3000 : storage.get("klar-budget", 3000);
+let yearlyGoals = existingVault ? {} : storage.get("klar-yearly-goals", {});
+if (!yearlyGoals || typeof yearlyGoals !== "object" || Array.isArray(yearlyGoals)) yearlyGoals = {};
 let activeCategory = "Alle";
 let activePeriod = "Alle";
 let activeEntryType = "Alle";
@@ -52,10 +73,82 @@ let transactionPeriod = `month-${new Date().getFullYear()}-${String(new Date().g
 let reportYear = new Date().getFullYear();
 let activeView = "overview";
 let editingEntryId = null;
+let editingOccurrenceDate = null;
+let pendingSeriesEdit = null;
 let toastTimer;
 
 const MONTHS_SHORT = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
 const MONTHS_LONG = ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"];
+
+function getAppPayload() {
+  return {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    entries: expenses,
+    budget,
+    yearlyGoals,
+    customCategories,
+    profile,
+  };
+}
+
+function removeLegacyPlaintextStorage() {
+  PROTECTED_STORAGE_KEYS.forEach((key) => localStorage.removeItem(key));
+}
+
+async function encryptPayload(payload, password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const iterations = 250000;
+  const key = await deriveBackupKey(password, salt, iterations, ["encrypt"]);
+  const encrypted = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    new TextEncoder().encode(JSON.stringify(payload)),
+  );
+  return {
+    format: "klar-encrypted-backup",
+    version: 1,
+    encryption: { algorithm: "AES-256-GCM", kdf: "PBKDF2-SHA-256", iterations },
+    salt: bytesToBase64(salt),
+    iv: bytesToBase64(iv),
+    data: bytesToBase64(new Uint8Array(encrypted)),
+  };
+}
+
+async function decryptEnvelope(envelope, password) {
+  if (envelope?.format !== "klar-encrypted-backup" || envelope.version !== 1 || envelope.encryption?.algorithm !== "AES-256-GCM" || envelope.encryption?.kdf !== "PBKDF2-SHA-256") throw new Error("invalid-format");
+  const iterations = Number(envelope.encryption.iterations);
+  if (!Number.isInteger(iterations) || iterations < 100000 || iterations > 1000000) throw new Error("invalid-kdf");
+  const salt = base64ToBytes(envelope.salt);
+  const iv = base64ToBytes(envelope.iv);
+  if (salt.length !== 16 || iv.length !== 12) throw new Error("invalid-parameters");
+  const key = await deriveBackupKey(password, salt, iterations, ["decrypt"]);
+  const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, base64ToBytes(envelope.data));
+  return validateBackupPayload(JSON.parse(new TextDecoder().decode(decrypted)));
+}
+
+async function persistEncryptedVault() {
+  if (!isVaultUnlocked || !vaultPassword) return;
+  const envelope = await encryptPayload(getAppPayload(), vaultPassword);
+  localStorage.setItem(VAULT_KEY, JSON.stringify(envelope));
+  removeLegacyPlaintextStorage();
+}
+
+function queueVaultPersist() {
+  if (!isVaultUnlocked || !vaultPassword) return;
+  vaultWriteChain = vaultWriteChain.then(persistEncryptedVault).catch(() => {
+    showToast("Die verschlüsselten Daten konnten nicht gespeichert werden.");
+  });
+}
+
+function applyImportedState(imported) {
+  expenses = imported.entries;
+  budget = imported.budget;
+  yearlyGoals = imported.yearlyGoals;
+  profile = imported.profile;
+  replaceCustomCategories(imported.categories);
+}
 
 function getCategories(type) {
   const builtIn = type === "Einnahme" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
@@ -89,6 +182,44 @@ function toDateString(date) {
   return `${year}-${month}-${day}`;
 }
 
+function resolveEntryAtDate(entry, occurrenceDate) {
+  const revisions = (entry.revisions || [])
+    .filter((revision) => revision.effectiveDate <= occurrenceDate)
+    .sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
+  const revision = revisions.at(-1) || {};
+  const override = entry.overrides?.[occurrenceDate] || {};
+  return { ...entry, ...revision, ...override, date: occurrenceDate };
+}
+
+function createOccurrence(entry, occurrenceDate) {
+  return {
+    ...resolveEntryAtDate(entry, occurrenceDate),
+    sourceId: entry.id,
+    occurrenceId: `${entry.id}-${occurrenceDate}`,
+  };
+}
+
+function isOccurrenceExcluded(entry, occurrenceDate) {
+  return (entry.excludedDates || []).includes(occurrenceDate);
+}
+
+function getNextOccurrenceDate(entry, fromDate = new Date()) {
+  const start = new Date(`${entry.date}T12:00:00`);
+  const today = new Date(fromDate.getFullYear(), fromDate.getMonth(), fromDate.getDate(), 12);
+  if (start >= today) return entry.date;
+  if (entry.period === "Monatlich") {
+    let candidate = dateAtNoon(today.getFullYear(), today.getMonth(), start.getDate());
+    if (candidate < today) candidate = dateAtNoon(today.getFullYear(), today.getMonth() + 1, start.getDate());
+    return toDateString(candidate);
+  }
+  if (entry.period === "Jährlich") {
+    let candidate = dateAtNoon(today.getFullYear(), start.getMonth(), start.getDate());
+    if (candidate < today) candidate = dateAtNoon(today.getFullYear() + 1, start.getMonth(), start.getDate());
+    return toDateString(candidate);
+  }
+  return entry.date;
+}
+
 function expandEntriesThrough(endDate = new Date()) {
   const end = new Date(endDate.getFullYear(), endDate.getMonth(), endDate.getDate(), 23, 59, 59);
   const occurrences = [];
@@ -98,7 +229,7 @@ function expandEntriesThrough(endDate = new Date()) {
     if (Number.isNaN(start.getTime()) || start > end) return;
 
     if (entry.period === "Einmalig") {
-      occurrences.push({ ...entry, sourceId: entry.id, occurrenceId: `${entry.id}-${entry.date}` });
+      if (!isOccurrenceExcluded(entry, entry.date)) occurrences.push(createOccurrence(entry, entry.date));
       return;
     }
 
@@ -108,7 +239,8 @@ function expandEntriesThrough(endDate = new Date()) {
       while (true) {
         const occurrenceDate = dateAtNoon(year, month, start.getDate());
         if (occurrenceDate > end) break;
-        occurrences.push({ ...entry, date: toDateString(occurrenceDate), sourceId: entry.id, occurrenceId: `${entry.id}-${toDateString(occurrenceDate)}` });
+        const occurrenceDateString = toDateString(occurrenceDate);
+        if (!isOccurrenceExcluded(entry, occurrenceDateString)) occurrences.push(createOccurrence(entry, occurrenceDateString));
         month += 1;
         if (month > 11) { month = 0; year += 1; }
       }
@@ -119,7 +251,8 @@ function expandEntriesThrough(endDate = new Date()) {
       for (let year = start.getFullYear(); year <= end.getFullYear(); year += 1) {
         const occurrenceDate = dateAtNoon(year, start.getMonth(), start.getDate());
         if (occurrenceDate > end) break;
-        occurrences.push({ ...entry, date: toDateString(occurrenceDate), sourceId: entry.id, occurrenceId: `${entry.id}-${toDateString(occurrenceDate)}` });
+        const occurrenceDateString = toDateString(occurrenceDate);
+        if (!isOccurrenceExcluded(entry, occurrenceDateString)) occurrences.push(createOccurrence(entry, occurrenceDateString));
       }
     }
   });
@@ -170,7 +303,10 @@ function getSelectedTransactionPeriod() {
 
 function renderTransactionPeriodSelect() {
   const now = new Date();
-  const entryYears = expenses.map((expense) => new Date(`${expense.date}T12:00:00`).getFullYear());
+  const entryYears = [
+    ...expenses.map((expense) => new Date(`${expense.date}T12:00:00`).getFullYear()),
+    ...Object.keys(yearlyGoals).map(Number).filter(Number.isFinite),
+  ];
   const firstYear = Math.min(now.getFullYear(), ...entryYears);
   const options = [];
   for (let year = now.getFullYear(); year >= firstYear; year -= 1) {
@@ -211,7 +347,7 @@ function renderTransactions() {
       <span class="category-pill">${escapeHtml(expense.category)}</span>
       <span class="transaction-amount ${expense.type === "Einnahme" ? "income" : ""}">${expense.type === "Einnahme" ? "+" : "−"} ${formatCurrency(expense.amount)}</span>
       <div class="transaction-actions">
-        <button class="edit-button" type="button" data-edit="${expense.sourceId}" aria-label="${escapeHtml(expense.description)}${expense.period === "Einmalig" ? "" : " als Serie"} bearbeiten">✎</button>
+        <button class="edit-button" type="button" data-edit="${expense.sourceId}" data-occurrence-date="${expense.date}" aria-label="${escapeHtml(expense.description)}${expense.period === "Einmalig" ? "" : " als Serie"} bearbeiten">✎</button>
         <button class="delete-button" type="button" data-delete="${expense.sourceId}" aria-label="${escapeHtml(expense.description)}${expense.period === "Einmalig" ? "" : " als Serie"} löschen">×</button>
       </div>
     </article>`;
@@ -282,7 +418,9 @@ function renderAnalytics() {
   const now = new Date();
   const reportEnd = reportYear === currentYear
     ? now
-    : new Date(reportYear, 11, 31, 23, 59, 59);
+    : reportYear < currentYear
+      ? new Date(reportYear, 11, 31, 23, 59, 59)
+      : new Date(reportYear, 0, 0, 23, 59, 59);
   const yearlyEntries = expandEntriesThrough(reportEnd).filter((expense) => new Date(`${expense.date}T12:00:00`).getFullYear() === reportYear);
   const yearlyExpenses = yearlyEntries.filter((expense) => expense.type === "Ausgabe");
   const yearlyIncome = yearlyEntries.filter((expense) => expense.type === "Einnahme");
@@ -307,6 +445,7 @@ function renderAnalytics() {
   $("#annualBalance").className = balance >= 0 ? "positive" : "negative";
   $("#savingsRate").textContent = savingsRate === null ? "–" : `${savingsRate.toFixed(1)}%`;
   $("#savingsRate").className = savingsRate === null ? "" : savingsRate >= 0 ? "positive" : "negative";
+  renderYearGoals(total, balance);
 
   const scaleMax = maxValue > 0 ? niceScaleMax(maxValue) : 1000;
   $("#chartScale").innerHTML = [scaleMax, scaleMax * .75, scaleMax * .5, scaleMax * .25, 0]
@@ -342,6 +481,34 @@ function renderAnalytics() {
     total: "#annualIncomeDonutTotal",
     breakdown: "#incomeCategoryBreakdown",
   }, "Einnahmen");
+}
+
+function renderYearGoals(totalExpenses, balance) {
+  const goals = yearlyGoals[reportYear] || {};
+  const annualBudget = Number(goals.annualBudget) || 0;
+  const savingsBudget = Number(goals.savingsBudget) || 0;
+  const savedAmount = Math.max(balance, 0);
+
+  $("#annualBudgetGoal").textContent = annualBudget ? formatCurrency(annualBudget) : "Nicht festgelegt";
+  const annualPercent = annualBudget ? totalExpenses / annualBudget * 100 : 0;
+  $("#annualBudgetProgress").style.width = `${Math.min(annualPercent, 100)}%`;
+  $("#annualBudgetProgress").classList.toggle("over", annualBudget > 0 && totalExpenses > annualBudget);
+  $("#annualBudgetPercent").textContent = annualBudget ? `${annualPercent.toFixed(1)}%` : "–";
+  $("#annualBudgetStatus").textContent = annualBudget
+    ? totalExpenses <= annualBudget
+      ? `${formatCurrency(annualBudget - totalExpenses)} verfügbar`
+      : `${formatCurrency(totalExpenses - annualBudget)} über Budget`
+    : "Noch kein Jahresbudget vorhanden";
+
+  $("#savingsBudgetGoal").textContent = savingsBudget ? formatCurrency(savingsBudget) : "Nicht festgelegt";
+  const savingsPercent = savingsBudget ? savedAmount / savingsBudget * 100 : 0;
+  $("#savingsBudgetProgress").style.width = `${Math.min(savingsPercent, 100)}%`;
+  $("#savingsBudgetPercent").textContent = savingsBudget ? `${savingsPercent.toFixed(1)}%` : "–";
+  $("#savingsBudgetStatus").textContent = savingsBudget
+    ? savedAmount >= savingsBudget
+      ? `Ziel um ${formatCurrency(savedAmount - savingsBudget)} übertroffen`
+      : `${formatCurrency(savingsBudget - savedAmount)} bis zum Ziel`
+    : "Noch kein Sparziel vorhanden";
 }
 
 function niceScaleMax(value) {
@@ -400,6 +567,7 @@ function render() {
   renderSummary();
   renderAnalytics();
   renderCustomCategories();
+  renderSeriesList();
 }
 
 function openModal(selector) {
@@ -410,7 +578,7 @@ function openModal(selector) {
 }
 
 function closeModals() {
-  $$(".modal-backdrop").forEach((modal) => { modal.hidden = true; });
+  $$(".modal-backdrop").forEach((modal) => { if (modal.id !== "securityModal") modal.hidden = true; });
   document.body.style.overflow = "";
 }
 
@@ -425,6 +593,77 @@ function showToast(message) {
   $("#toast").classList.add("show");
   toastTimer = setTimeout(() => $("#toast").classList.remove("show"), 2600);
 }
+
+function showSecurityGate(mode) {
+  $("#setupSecurityPanel").hidden = mode !== "setup";
+  $("#unlockSecurityPanel").hidden = mode !== "unlock";
+  $("#unlockError").hidden = true;
+  $("#securityModal .security-modal").setAttribute("aria-labelledby", mode === "setup" ? "securityModalTitle" : "unlockSecurityTitle");
+  $("#securityModal").hidden = false;
+  document.body.style.overflow = "hidden";
+  setTimeout(() => $(mode === "setup" ? '#setupSecurityForm [name="password"]' : '#unlockSecurityForm [name="password"]')?.focus(), 50);
+}
+
+$("#setupSecurityForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!ensureWebCrypto()) return;
+  const form = event.currentTarget;
+  const data = new FormData(form);
+  const password = data.get("password");
+  if (password !== data.get("confirmation")) {
+    showToast("Die Passwörter stimmen nicht überein.");
+    return;
+  }
+  const button = form.querySelector("button[type=submit]");
+  button.disabled = true;
+  button.textContent = "Daten werden verschlüsselt …";
+  try {
+    vaultPassword = password;
+    isVaultUnlocked = true;
+    await persistEncryptedVault();
+    form.reset();
+    closeModal($("#securityModal"));
+    showToast("Die lokalen Daten sind jetzt verschlüsselt.");
+  } catch {
+    isVaultUnlocked = false;
+    vaultPassword = null;
+    showToast("Die Verschlüsselung konnte nicht eingerichtet werden.");
+  } finally {
+    button.disabled = false;
+    button.textContent = "Daten verschlüsseln";
+  }
+});
+
+$("#unlockSecurityForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!ensureWebCrypto()) return;
+  const form = event.currentTarget;
+  const password = new FormData(form).get("password");
+  const button = form.querySelector("button[type=submit]");
+  button.disabled = true;
+  button.textContent = "Wird entsperrt …";
+  $("#unlockError").hidden = true;
+  try {
+    const envelope = JSON.parse(localStorage.getItem(VAULT_KEY));
+    const imported = await decryptEnvelope(envelope, password);
+    applyImportedState(imported);
+    vaultPassword = password;
+    isVaultUnlocked = true;
+    removeLegacyPlaintextStorage();
+    form.reset();
+    setGreeting();
+    updateEntryForm();
+    render();
+    showView(window.location.hash.slice(1) || "overview", false);
+    closeModal($("#securityModal"));
+  } catch {
+    $("#unlockError").hidden = false;
+    form.elements.password.select();
+  } finally {
+    button.disabled = false;
+    button.textContent = "App entsperren";
+  }
+});
 
 function showView(view, updateHash = true) {
   const validViews = ["overview", "transactions", "analytics"];
@@ -450,51 +689,230 @@ window.addEventListener("popstate", () => showView(window.location.hash.slice(1)
 
 function prepareNewEntry() {
   editingEntryId = null;
+  editingOccurrenceDate = null;
   $("#expenseForm").reset();
   $("#expenseForm [name=date]").value = new Date().toISOString().slice(0, 10);
+  $("#expenseForm [name=date]").readOnly = false;
+  $$('#expenseForm [name="period"]').forEach((input) => { input.disabled = false; });
+  $("#expenseForm .cycle-fieldset").classList.remove("locked");
   $("#expenseModalEyebrow").textContent = "NEUER EINTRAG";
   $("#expenseModalTitle").textContent = "Eintrag hinzufügen";
   updateEntryForm();
   openModal("#expenseModal");
 }
 
-function prepareEditEntry(entry) {
+function prepareEditEntry(entry, occurrenceDate = entry.date) {
   editingEntryId = entry.id;
+  editingOccurrenceDate = occurrenceDate;
+  const displayedEntry = entry.period === "Einmalig" ? entry : resolveEntryAtDate(entry, occurrenceDate);
   const form = $("#expenseForm");
   form.reset();
-  form.querySelector(`[name="type"][value="${entry.type}"]`).checked = true;
+  form.querySelector(`[name="type"][value="${displayedEntry.type}"]`).checked = true;
   updateEntryForm();
-  form.elements.description.value = entry.description;
-  form.elements.amount.value = entry.amount;
-  form.elements.date.value = entry.date;
-  form.elements.category.value = entry.category;
+  form.elements.description.value = displayedEntry.description;
+  form.elements.amount.value = displayedEntry.amount;
+  form.elements.date.value = occurrenceDate;
+  form.elements.category.value = displayedEntry.category;
   form.querySelector(`[name="period"][value="${entry.period}"]`).checked = true;
   const isSeries = entry.period !== "Einmalig";
+  form.elements.date.readOnly = isSeries;
+  $$('#expenseForm [name="period"]').forEach((input) => { input.disabled = isSeries; });
+  $("#expenseForm .cycle-fieldset").classList.toggle("locked", isSeries);
   $("#expenseModalEyebrow").textContent = isSeries ? "WIEDERKEHRENDER EINTRAG" : "BUCHUNG";
   $("#expenseModalTitle").textContent = isSeries ? "Serie bearbeiten" : "Eintrag bearbeiten";
   $("#entrySubmitButton").textContent = "Änderungen speichern";
   openModal("#expenseModal");
 }
 
+function renderSeriesList() {
+  const series = expenses.filter((entry) => entry.period !== "Einmalig").sort((a, b) => a.description.localeCompare(b.description, "de"));
+  $("#seriesList").innerHTML = series.length ? series.map((entry) => {
+    const nextDate = getNextOccurrenceDate(entry);
+    const current = resolveEntryAtDate(entry, nextDate);
+    const meta = CATEGORY_META[current.category] || CATEGORY_META.Sonstiges;
+    return `<article class="series-item">
+      <span class="series-item-icon" style="color:${meta.color};background:${meta.color}18">${escapeHtml(meta.icon)}</span>
+      <div class="series-item-info">
+        <strong>${escapeHtml(current.description)} · ${current.type === "Einnahme" ? "+" : "−"} ${formatCurrency(current.amount)}</strong>
+        <span>${entry.period} · nächste Fälligkeit ${new Intl.DateTimeFormat("de-CH", { day: "2-digit", month: "long", year: "numeric" }).format(new Date(`${nextDate}T12:00:00`))}</span>
+      </div>
+      <div class="series-item-actions"><button type="button" data-edit-series="${entry.id}" data-occurrence-date="${nextDate}">Bearbeiten</button></div>
+    </article>`;
+  }).join("") : `<div class="empty-state"><span class="empty-icon">↻</span><h3>Noch keine Serien.</h3><p>Monatliche und jährliche Buchungen erscheinen hier.</p></div>`;
+}
+
+function prepareSeriesEditWizard(entry, occurrenceDate) {
+  const effectiveDate = new Date(`${occurrenceDate}T12:00:00`);
+  const dayBefore = new Date(effectiveDate);
+  dayBefore.setDate(dayBefore.getDate() - 1);
+  const pastOccurrences = expandEntriesThrough(dayBefore)
+    .filter((occurrence) => occurrence.sourceId === entry.id)
+    .sort((a, b) => b.date.localeCompare(a.date));
+  $("#seriesFutureHint").textContent = `Ab ${new Intl.DateTimeFormat("de-CH", { day: "2-digit", month: "long", year: "numeric" }).format(effectiveDate)} und zukünftig`;
+  $("#pastOccurrenceList").innerHTML = pastOccurrences.length ? pastOccurrences.map((occurrence) => `
+    <label>
+      <input type="checkbox" name="pastOccurrence" value="${occurrence.date}" />
+      <span>${new Intl.DateTimeFormat("de-CH", { day: "2-digit", month: "long", year: "numeric" }).format(new Date(`${occurrence.date}T12:00:00`))} · ${formatCurrency(occurrence.amount)}</span>
+    </label>`).join("") : `<p class="past-occurrence-empty">Es gibt noch keine früheren Buchungen dieser Serie.</p>`;
+  $('#seriesEditForm [name="scope"][value="future"]').checked = true;
+  $("#pastSelection").hidden = false;
+  $("#togglePastEntries").textContent = "Alle auswählen";
+  openModal("#seriesEditModal");
+}
+
+function saveSeriesChanges(scope, selectedPastDates) {
+  if (!pendingSeriesEdit) return;
+  expenses = expenses.map((entry) => {
+    if (entry.id !== pendingSeriesEdit.sourceId) return entry;
+    const { changes, occurrenceDate } = pendingSeriesEdit;
+    if (scope === "all") {
+      return { ...entry, ...changes, revisions: [], overrides: {} };
+    }
+    const revisions = [...(entry.revisions || []).filter((revision) => revision.effectiveDate !== occurrenceDate), { effectiveDate: occurrenceDate, ...changes }]
+      .sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
+    const overrides = { ...(entry.overrides || {}) };
+    selectedPastDates.forEach((date) => { overrides[date] = { ...changes }; });
+    return { ...entry, revisions, overrides };
+  });
+  storage.set("klar-expenses", expenses);
+  pendingSeriesEdit = null;
+  editingEntryId = null;
+  editingOccurrenceDate = null;
+  closeModal($("#seriesEditModal"));
+  render();
+  showToast(scope === "all" ? "Die gesamte Serie wurde geändert." : "Die Serienänderung wurde gespeichert.");
+}
+
+function renderDeletePeriodOptions() {
+  const now = new Date();
+  const validDates = expenses.map((entry) => new Date(`${entry.date}T12:00:00`)).filter((date) => !Number.isNaN(date.getTime()));
+  const firstDate = validDates.length ? new Date(Math.min(...validDates)) : now;
+  const firstYear = Math.min(firstDate.getFullYear(), now.getFullYear());
+  $("#deleteYearSelect").innerHTML = Array.from({ length: now.getFullYear() - firstYear + 1 }, (_, index) => now.getFullYear() - index)
+    .map((year) => `<option value="${year}">${year}</option>`).join("");
+  const months = [];
+  let cursor = new Date(now.getFullYear(), now.getMonth(), 1);
+  const firstMonth = new Date(firstDate.getFullYear(), firstDate.getMonth(), 1);
+  while (cursor >= firstMonth) {
+    const value = `${cursor.getFullYear()}-${String(cursor.getMonth() + 1).padStart(2, "0")}`;
+    months.push(`<option value="${value}">${MONTHS_LONG[cursor.getMonth()]} ${cursor.getFullYear()}</option>`);
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1);
+  }
+  $("#deleteMonthSelect").innerHTML = months.join("");
+}
+
+function updateDeleteScopeUI() {
+  const scope = $('#deleteAllForm [name="deleteScope"]:checked').value;
+  $("#deleteMonthField").hidden = scope !== "month";
+  $("#deleteYearField").hidden = scope !== "year";
+  const content = {
+    all: {
+      title: "Wirklich alles löschen?",
+      description: "Alle Buchungen, wiederkehrenden Serien, Kategorien, Budget- und Profildaten werden dauerhaft von diesem Gerät entfernt. Ein vorhandenes verschlüsseltes Backup bleibt davon unberührt.",
+      button: "Alle Daten endgültig löschen",
+    },
+    month: {
+      title: "Monat dauerhaft löschen?",
+      description: "Alle Buchungen des ausgewählten Monats werden entfernt. Wiederkehrende Serien, Profil, Budget und Kategorien bleiben bestehen.",
+      button: "Ausgewählten Monat löschen",
+    },
+    year: {
+      title: "Jahr dauerhaft löschen?",
+      description: "Alle Buchungen des ausgewählten Jahres werden entfernt. Wiederkehrende Serien, Profil, Budget und Kategorien bleiben bestehen.",
+      button: "Ausgewähltes Jahr löschen",
+    },
+  }[scope];
+  $("#deleteAllModalTitle").textContent = content.title;
+  $("#deleteAllDescription").textContent = content.description;
+  $("#deleteAllConfirmButton").textContent = content.button;
+}
+
+function deleteEntriesInRange(startDate, endDate) {
+  const startString = toDateString(startDate);
+  const endString = toDateString(endDate);
+  const occurrences = expandEntriesThrough(endDate).filter((occurrence) => occurrence.date >= startString && occurrence.date <= endString);
+  const datesBySource = new Map();
+  occurrences.forEach((occurrence) => {
+    if (!datesBySource.has(occurrence.sourceId)) datesBySource.set(occurrence.sourceId, []);
+    datesBySource.get(occurrence.sourceId).push(occurrence.date);
+  });
+  expenses = expenses.flatMap((entry) => {
+    const dates = datesBySource.get(entry.id) || [];
+    if (entry.period === "Einmalig") return dates.length ? [] : [entry];
+    if (!dates.length) return [entry];
+    const excludedDates = [...new Set([...(entry.excludedDates || []), ...dates])].sort();
+    const overrides = { ...(entry.overrides || {}) };
+    dates.forEach((date) => { delete overrides[date]; });
+    return [{ ...entry, excludedDates, overrides }];
+  });
+  storage.set("klar-expenses", expenses);
+  return occurrences.length;
+}
+
 [$("#desktopAddButton"), $("#mobileAddButton")].forEach((button) => button.addEventListener("click", prepareNewEntry));
+$("#seriesManagerButton").addEventListener("click", () => {
+  renderSeriesList();
+  openModal("#seriesModal");
+});
+$("#seriesList").addEventListener("click", (event) => {
+  const button = event.target.closest("[data-edit-series]");
+  if (!button) return;
+  const entry = expenses.find((item) => item.id === Number(button.dataset.editSeries));
+  if (!entry) return;
+  closeModal($("#seriesModal"));
+  prepareEditEntry(entry, button.dataset.occurrenceDate);
+});
 $("#profileButton").addEventListener("click", () => {
   $("#profileForm [name=name]").value = profile.name;
   $("#profileForm [name=initials]").value = profile.initials;
   openModal("#profileModal");
+});
+$("#openDeleteAllButton").addEventListener("click", () => {
+  $("#deleteAllForm").reset();
+  $("#deleteAllConfirmButton").disabled = true;
+  renderDeletePeriodOptions();
+  updateDeleteScopeUI();
+  openModal("#deleteAllModal");
 });
 [$("#manageCategoriesButton"), $("#formManageCategoriesButton")].forEach((button) => button.addEventListener("click", () => {
   const selectedType = $('#expenseForm input[name="type"]:checked')?.value || "Ausgabe";
   $("#categoryForm [name=type]").value = selectedType;
   openModal("#categoryModal");
 }));
-[$("#desktopBudgetButton"), $("#mobileBudgetButton"), $("#budgetAmountButton")].forEach((button) => button.addEventListener("click", () => {
+function renderBudgetYearOptions(selectedYear = new Date().getFullYear()) {
+  const currentYear = new Date().getFullYear();
+  const years = [...new Set([
+    currentYear + 1,
+    currentYear,
+    selectedYear,
+    ...Object.keys(yearlyGoals).map(Number),
+    ...expenses.map((entry) => new Date(`${entry.date}T12:00:00`).getFullYear()),
+  ])].filter(Number.isFinite).sort((a, b) => b - a);
+  $("#budgetYearSelect").innerHTML = years.map((year) => `<option value="${year}">${year}</option>`).join("");
+  $("#budgetYearSelect").value = String(selectedYear);
+  loadBudgetYearValues(selectedYear);
+}
+
+function loadBudgetYearValues(year) {
+  const goals = yearlyGoals[year] || {};
+  $("#budgetForm [name=annualBudget]").value = goals.annualBudget || "";
+  $("#budgetForm [name=savingsBudget]").value = goals.savingsBudget || "";
+}
+
+function openBudgetModal(year = new Date().getFullYear()) {
   $("#budgetForm [name=budget]").value = budget;
+  renderBudgetYearOptions(year);
   openModal("#budgetModal");
-}));
+}
+
+[$("#desktopBudgetButton"), $("#mobileBudgetButton"), $("#budgetAmountButton")].forEach((button) => button.addEventListener("click", () => openBudgetModal()));
+$$('[data-open-budget]').forEach((button) => button.addEventListener("click", () => openBudgetModal(reportYear)));
+$("#budgetYearSelect").addEventListener("change", (event) => loadBudgetYearValues(Number(event.target.value)));
 
 $("#expenseForm").addEventListener("submit", (event) => {
   event.preventDefault();
   const data = new FormData(event.currentTarget);
+  const sourceEntry = editingEntryId === null ? null : expenses.find((entry) => entry.id === editingEntryId);
   const updatedEntry = {
     id: editingEntryId || Date.now(),
     description: data.get("description").trim(),
@@ -502,9 +920,27 @@ $("#expenseForm").addEventListener("submit", (event) => {
     date: data.get("date"),
     category: data.get("category"),
     type: data.get("type"),
-    period: data.get("period"),
+    period: data.get("period") || sourceEntry?.period,
+    revisions: sourceEntry?.revisions || [],
+    overrides: sourceEntry?.overrides || {},
+    excludedDates: sourceEntry?.excludedDates || [],
   };
   const wasEditing = editingEntryId !== null;
+  if (wasEditing && sourceEntry?.period !== "Einmalig") {
+    pendingSeriesEdit = {
+      sourceId: sourceEntry.id,
+      occurrenceDate: editingOccurrenceDate,
+      changes: {
+        description: updatedEntry.description,
+        amount: updatedEntry.amount,
+        category: updatedEntry.category,
+        type: updatedEntry.type,
+      },
+    };
+    closeModal($("#expenseModal"));
+    prepareSeriesEditWizard(sourceEntry, editingOccurrenceDate);
+    return;
+  }
   if (wasEditing) {
     expenses = expenses.map((entry) => entry.id === editingEntryId ? updatedEntry : entry);
   } else {
@@ -512,6 +948,7 @@ $("#expenseForm").addEventListener("submit", (event) => {
   }
   storage.set("klar-expenses", expenses);
   editingEntryId = null;
+  editingOccurrenceDate = null;
   event.currentTarget.reset();
   updateEntryForm();
   $("#expenseForm [name=date]").value = new Date().toISOString().slice(0, 10);
@@ -522,11 +959,38 @@ $("#expenseForm").addEventListener("submit", (event) => {
 
 $("#budgetForm").addEventListener("submit", (event) => {
   event.preventDefault();
-  budget = Number(new FormData(event.currentTarget).get("budget"));
+  const data = new FormData(event.currentTarget);
+  budget = Number(data.get("budget"));
+  const year = Number(data.get("year"));
+  const annualBudget = Number(data.get("annualBudget")) || 0;
+  const savingsBudget = Number(data.get("savingsBudget")) || 0;
+  if (annualBudget || savingsBudget) yearlyGoals[year] = { annualBudget, savingsBudget };
+  else delete yearlyGoals[year];
   storage.set("klar-budget", budget);
+  storage.set("klar-yearly-goals", yearlyGoals);
   closeModals();
-  renderSummary();
-  showToast("Monatsbudget wurde aktualisiert.");
+  render();
+  showToast("Budgets und Sparziel wurden aktualisiert.");
+});
+
+$$('#seriesEditForm [name="scope"]').forEach((input) => input.addEventListener("change", () => {
+  $("#pastSelection").hidden = $('#seriesEditForm [name="scope"]:checked').value === "all";
+}));
+
+$("#togglePastEntries").addEventListener("click", () => {
+  const checkboxes = $$('#pastOccurrenceList input[type="checkbox"]');
+  const shouldCheck = checkboxes.some((checkbox) => !checkbox.checked);
+  checkboxes.forEach((checkbox) => { checkbox.checked = shouldCheck; });
+  $("#togglePastEntries").textContent = shouldCheck ? "Auswahl aufheben" : "Alle auswählen";
+});
+
+$("#seriesEditForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const scope = $('#seriesEditForm [name="scope"]:checked').value;
+  const selectedPastDates = scope === "future"
+    ? $$('#pastOccurrenceList input[type="checkbox"]:checked').map((input) => input.value)
+    : [];
+  saveSeriesChanges(scope, selectedPastDates);
 });
 
 $("#profileForm").addEventListener("submit", (event) => {
@@ -538,6 +1002,69 @@ $("#profileForm").addEventListener("submit", (event) => {
   storage.set("klar-profile", profile);
   setGreeting();
   showToast("Profil wurde aktualisiert.");
+});
+
+$("#deleteAllForm [name=confirmation]").addEventListener("input", (event) => {
+  $("#deleteAllConfirmButton").disabled = event.target.value.trim().toLocaleUpperCase("de-CH") !== "LÖSCHEN";
+});
+
+$$('#deleteAllForm [name="deleteScope"]').forEach((input) => input.addEventListener("change", updateDeleteScopeUI));
+
+$("#deleteAllForm").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  const confirmation = formData.get("confirmation").trim().toLocaleUpperCase("de-CH");
+  if (confirmation !== "LÖSCHEN") return;
+  const deleteScope = formData.get("deleteScope");
+
+  if (deleteScope === "month" || deleteScope === "year") {
+    let startDate;
+    let endDate;
+    let label;
+    if (deleteScope === "month") {
+      const [year, month] = formData.get("month").split("-").map(Number);
+      startDate = new Date(year, month - 1, 1, 12);
+      endDate = new Date(year, month, 0, 12);
+      label = `${MONTHS_LONG[month - 1]} ${year}`;
+    } else {
+      const year = Number(formData.get("year"));
+      startDate = new Date(year, 0, 1, 12);
+      endDate = new Date(year, 11, 31, 12);
+      label = String(year);
+    }
+    const deletedCount = deleteEntriesInRange(startDate, endDate);
+    render();
+    closeModals();
+    showToast(deletedCount ? `${deletedCount} Buchungen aus ${label} wurden gelöscht.` : `Für ${label} wurden keine Buchungen gefunden.`);
+    return;
+  }
+
+  await vaultWriteChain;
+  expenses = [];
+  budget = 3000;
+  yearlyGoals = {};
+  profile = { name: "Benutzer", initials: "B" };
+  replaceCustomCategories([]);
+  activeCategory = "Alle";
+  activePeriod = "Alle";
+  activeEntryType = "Alle";
+  editingEntryId = null;
+  editingOccurrenceDate = null;
+  pendingSeriesEdit = null;
+  reportYear = new Date().getFullYear();
+  transactionPeriod = `month-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+
+  Object.keys(localStorage).filter((key) => key.startsWith("klar-")).forEach((key) => localStorage.removeItem(key));
+  await persistEncryptedVault();
+
+  $("#searchInput").value = "";
+  $("#expenseForm").reset();
+  updateEntryForm();
+  setGreeting();
+  render();
+  closeModals();
+  showView("overview");
+  showToast("Alle persönlichen Daten wurden gelöscht.");
 });
 
 function bytesToBase64(bytes) {
@@ -581,43 +1108,13 @@ function ensureWebCrypto() {
 
 $("#exportForm").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!ensureWebCrypto()) return;
   const form = event.currentTarget;
-  const data = new FormData(form);
-  const password = data.get("password");
-  if (password !== data.get("confirmation")) {
-    showToast("Die Passwörter stimmen nicht überein.");
-    return;
-  }
   const button = form.querySelector("button[type=submit]");
   button.disabled = true;
   button.textContent = "Backup wird verschlüsselt …";
   try {
-    const salt = crypto.getRandomValues(new Uint8Array(16));
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const iterations = 250000;
-    const key = await deriveBackupKey(password, salt, iterations, ["encrypt"]);
-    const payload = {
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      entries: expenses,
-      budget,
-      customCategories,
-      profile,
-    };
-    const encrypted = await crypto.subtle.encrypt(
-      { name: "AES-GCM", iv },
-      key,
-      new TextEncoder().encode(JSON.stringify(payload)),
-    );
-    const envelope = {
-      format: "klar-encrypted-backup",
-      version: 1,
-      encryption: { algorithm: "AES-256-GCM", kdf: "PBKDF2-SHA-256", iterations },
-      salt: bytesToBase64(salt),
-      iv: bytesToBase64(iv),
-      data: bytesToBase64(new Uint8Array(encrypted)),
-    };
+    await persistEncryptedVault();
+    const envelope = JSON.parse(localStorage.getItem(VAULT_KEY));
     const blob = new Blob([JSON.stringify(envelope, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -627,7 +1124,6 @@ $("#exportForm").addEventListener("submit", async (event) => {
     link.click();
     link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    form.reset();
     showToast("Verschlüsseltes Backup wurde erstellt.");
   } catch {
     showToast("Das Backup konnte nicht erstellt werden.");
@@ -644,7 +1140,26 @@ function validateBackupPayload(payload) {
   const entries = payload.entries.map((entry) => {
     const amount = Number(entry.amount);
     if (!entry || typeof entry.description !== "string" || !Number.isFinite(amount) || amount <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(entry.date) || !validTypes.includes(entry.type) || !validPeriods.includes(entry.period) || typeof entry.category !== "string") throw new Error("invalid-entry");
-    return { id: Number(entry.id) || Date.now() + Math.random(), description: entry.description.slice(0, 40), amount, category: entry.category.slice(0, 24), type: entry.type, period: entry.period, date: entry.date };
+    const sanitizeChange = (change) => {
+      const changeAmount = Number(change?.amount);
+      if (!change || typeof change.description !== "string" || !Number.isFinite(changeAmount) || changeAmount <= 0 || typeof change.category !== "string" || !validTypes.includes(change.type)) throw new Error("invalid-series-change");
+      return { description: change.description.slice(0, 40), amount: changeAmount, category: change.category.slice(0, 24), type: change.type };
+    };
+    const revisions = Array.isArray(entry.revisions) ? entry.revisions.map((revision) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(revision?.effectiveDate)) throw new Error("invalid-revision-date");
+      return { effectiveDate: revision.effectiveDate, ...sanitizeChange(revision) };
+    }) : [];
+    const overrides = {};
+    if (entry.overrides && typeof entry.overrides === "object" && !Array.isArray(entry.overrides)) {
+      Object.entries(entry.overrides).forEach(([date, change]) => {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("invalid-override-date");
+        overrides[date] = sanitizeChange(change);
+      });
+    }
+    const excludedDates = Array.isArray(entry.excludedDates)
+      ? [...new Set(entry.excludedDates.filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date)))]
+      : [];
+    return { id: Number(entry.id) || Date.now() + Math.random(), description: entry.description.slice(0, 40), amount, category: entry.category.slice(0, 24), type: entry.type, period: entry.period, date: entry.date, revisions, overrides, excludedDates };
   });
   const builtInNames = new Set([...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES].map((name) => name.toLocaleLowerCase("de")));
   const seenNames = new Set();
@@ -656,10 +1171,19 @@ function validateBackupPayload(payload) {
   }).map((category) => ({ id: Number(category.id) || Date.now() + Math.random(), name: category.name.trim(), type: category.type, color: category.color }));
   const importedBudget = Number(payload.budget);
   if (!Number.isFinite(importedBudget) || importedBudget <= 0) throw new Error("invalid-budget");
+  const importedYearlyGoals = {};
+  if (payload.yearlyGoals && typeof payload.yearlyGoals === "object" && !Array.isArray(payload.yearlyGoals)) {
+    Object.entries(payload.yearlyGoals).forEach(([year, goals]) => {
+      const annualBudget = Number(goals?.annualBudget) || 0;
+      const savingsBudget = Number(goals?.savingsBudget) || 0;
+      if (!/^\d{4}$/.test(year) || annualBudget < 0 || savingsBudget < 0 || !Number.isFinite(annualBudget) || !Number.isFinite(savingsBudget)) throw new Error("invalid-yearly-goals");
+      if (annualBudget || savingsBudget) importedYearlyGoals[year] = { annualBudget, savingsBudget };
+    });
+  }
   const importedProfile = payload.profile && typeof payload.profile.name === "string" && typeof payload.profile.initials === "string"
     ? { name: payload.profile.name.trim().slice(0, 40) || "Benutzer", initials: payload.profile.initials.trim().slice(0, 3).toUpperCase() || "B" }
     : { name: "Benutzer", initials: "B" };
-  return { entries, categories, budget: importedBudget, profile: importedProfile };
+  return { entries, categories, budget: importedBudget, yearlyGoals: importedYearlyGoals, profile: importedProfile };
 }
 
 function replaceCustomCategories(categories) {
@@ -683,25 +1207,15 @@ $("#importForm").addEventListener("submit", async (event) => {
   try {
     if (!(file instanceof File) || file.size > 10 * 1024 * 1024) throw new Error("invalid-file-size");
     const envelope = JSON.parse(await file.text());
-    if (envelope.format !== "klar-encrypted-backup" || envelope.version !== 1 || envelope.encryption?.algorithm !== "AES-256-GCM" || envelope.encryption?.kdf !== "PBKDF2-SHA-256") throw new Error("invalid-format");
-    const iterations = Number(envelope.encryption.iterations);
-    if (!Number.isInteger(iterations) || iterations < 100000 || iterations > 1000000) throw new Error("invalid-kdf");
-    const salt = base64ToBytes(envelope.salt);
-    const iv = base64ToBytes(envelope.iv);
-    if (salt.length !== 16 || iv.length !== 12) throw new Error("invalid-parameters");
-    const key = await deriveBackupKey(data.get("password"), salt, iterations, ["decrypt"]);
-    const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, base64ToBytes(envelope.data));
-    const imported = validateBackupPayload(JSON.parse(new TextDecoder().decode(decrypted)));
+    const importPassword = data.get("password");
+    const imported = await decryptEnvelope(envelope, importPassword);
     if (!window.confirm("Beim Import werden alle aktuellen Daten ersetzt. Möchtest du fortfahren?")) return;
 
-    expenses = imported.entries;
-    budget = imported.budget;
-    profile = imported.profile;
-    replaceCustomCategories(imported.categories);
-    storage.set("klar-expenses", expenses);
-    storage.set("klar-budget", budget);
-    storage.set("klar-profile", profile);
-    storage.set("klar-custom-categories", customCategories);
+    await vaultWriteChain;
+    applyImportedState(imported);
+    vaultPassword = importPassword;
+    isVaultUnlocked = true;
+    await persistEncryptedVault();
     activeCategory = "Alle";
     activePeriod = "Alle";
     activeEntryType = "Alle";
@@ -807,7 +1321,7 @@ $("#transactionList").addEventListener("click", (event) => {
   const editButton = event.target.closest("[data-edit]");
   if (editButton) {
     const entry = expenses.find((item) => item.id === Number(editButton.dataset.edit));
-    if (entry) prepareEditEntry(entry);
+    if (entry) prepareEditEntry(entry, editButton.dataset.occurrenceDate);
     return;
   }
   const button = event.target.closest("[data-delete]");
@@ -842,10 +1356,13 @@ $("#yearSelect").addEventListener("change", (event) => {
 $("#printAnalyticsButton").addEventListener("click", () => window.print());
 $$('[data-close-modal]').forEach((button) => button.addEventListener("click", () => closeModal(button.closest(".modal-backdrop"))));
 $$('.modal-backdrop').forEach((backdrop) => backdrop.addEventListener("click", (event) => {
-  if (event.target === backdrop) closeModal(backdrop);
+  if (event.target === backdrop && backdrop.id !== "securityModal") closeModal(backdrop);
 }));
-document.addEventListener("keydown", (event) => { if (event.key === "Escape") closeModals(); });
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && $("#securityModal").hidden) closeModals();
+});
 
 setGreeting();
 render();
 showView(window.location.hash.slice(1) || "overview", false);
+showSecurityGate(existingVault ? "unlock" : "setup");

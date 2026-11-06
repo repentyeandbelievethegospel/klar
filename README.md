@@ -22,11 +22,16 @@ Danach `http://localhost:8000` öffnen.
 - Getrennte Ansichten für Übersicht, Transaktionen und Auswertungen
 - Monats- und Jahresfilter für die Buchungsansicht
 - Einmalige Buchungen und wiederkehrende Serien bearbeiten
+- Serienverwaltung mit zeitabhängigen Preisänderungen und gezielter Auswahl vergangener Buchungen
 - Anpassbares Benutzerprofil mit Name und Initialen
 - Passwortgeschützter JSON-Export und -Import mit AES-256-GCM
+- AES-256-GCM-verschlüsselter lokaler Datenspeicher mit App-Sperre
+- Geschütztes vollständiges Löschen aller lokal gespeicherten persönlichen Daten
+- Selektives Löschen aller Buchungen eines Monats oder Jahres
 - Monatliche und jährliche Salden aus Einnahmen und Ausgaben
 - Sparbetrag und Sparquote in der Jahresauswertung
 - Durchschnittliche Monatsausgaben für laufende und abgeschlossene Jahre
+- Jahresbudgets und jährliche Sparziele mit Fortschrittsanzeige
 - Separate Kategorieauswertungen für Einnahmen und Ausgaben
 - Druckoptimierte Jahresauswertung
 - Getrennte Summen und Filter für den Abrechnungsrhythmus

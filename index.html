@@ -153,6 +153,10 @@
                 <h2>Letzte Transaktionen</h2>
               </div>
               <div class="transaction-heading-actions">
+                <button class="series-manager-button" id="seriesManagerButton" type="button">
+                  <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20 7h-9a5 5 0 1 0 0 10h1M17 4l3 3-3 3M4 17h9a5 5 0 1 0 0-10h-1M7 20l-3-3 3-3"/></svg>
+                  Serien
+                </button>
                 <label class="transaction-period-label">
                   <span class="sr-only">Zeitraum auswählen</span>
                   <select id="transactionPeriodSelect" aria-label="Zeitraum der Buchungen auswählen"></select>
@@ -225,6 +229,25 @@
               <article>
                 <span>Sparquote</span>
                 <strong id="savingsRate">0%</strong>
+              </article>
+            </div>
+
+            <div class="year-goals">
+              <article class="goal-card">
+                <div class="goal-card-heading">
+                  <div><span>Jahresbudget</span><strong id="annualBudgetGoal">Nicht festgelegt</strong></div>
+                  <button class="goal-edit-button" type="button" data-open-budget>Bearbeiten</button>
+                </div>
+                <div class="goal-progress-track"><span id="annualBudgetProgress"></span></div>
+                <div class="goal-card-foot"><span id="annualBudgetStatus">Noch kein Jahresbudget vorhanden</span><b id="annualBudgetPercent">–</b></div>
+              </article>
+              <article class="goal-card savings-goal-card">
+                <div class="goal-card-heading">
+                  <div><span>Sparziel</span><strong id="savingsBudgetGoal">Nicht festgelegt</strong></div>
+                  <button class="goal-edit-button" type="button" data-open-budget>Bearbeiten</button>
+                </div>
+                <div class="goal-progress-track savings"><span id="savingsBudgetProgress"></span></div>
+                <div class="goal-card-foot"><span id="savingsBudgetStatus">Noch kein Sparziel vorhanden</span><b id="savingsBudgetPercent">–</b></div>
               </article>
             </div>
 
@@ -391,10 +414,74 @@
         </div>
         <form id="budgetForm">
           <label>
-            Budget (CHF)
+            Monatsbudget (CHF)
             <input name="budget" type="number" min="1" step="1" inputmode="decimal" required />
           </label>
+          <div class="budget-year-section">
+            <label>
+              Jahr
+              <select name="year" id="budgetYearSelect"></select>
+            </label>
+            <div class="form-grid">
+              <label>
+                Jahresbudget (CHF)
+                <input name="annualBudget" type="number" min="0" step="1" inputmode="decimal" placeholder="z. B. 36'000" />
+              </label>
+              <label>
+                Sparziel (CHF)
+                <input name="savingsBudget" type="number" min="0" step="1" inputmode="decimal" placeholder="z. B. 12'000" />
+              </label>
+            </div>
+            <p class="form-help">Leere Felder entfernen das Ziel für das ausgewählte Jahr.</p>
+          </div>
           <button class="primary-button form-submit" type="submit">Budget aktualisieren</button>
+        </form>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="seriesModal" hidden>
+      <section class="modal series-modal" role="dialog" aria-modal="true" aria-labelledby="seriesModalTitle">
+        <div class="modal-handle"></div>
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">WIEDERKEHRENDE BUCHUNGEN</p>
+            <h2 id="seriesModalTitle">Serien verwalten</h2>
+          </div>
+          <button class="modal-close" type="button" data-close-modal aria-label="Schließen">×</button>
+        </div>
+        <div class="series-list" id="seriesList"></div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="seriesEditModal" hidden>
+      <section class="modal series-edit-modal" role="dialog" aria-modal="true" aria-labelledby="seriesEditModalTitle">
+        <div class="modal-handle"></div>
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">ÄNDERUNG ÜBERNEHMEN</p>
+            <h2 id="seriesEditModalTitle">Welche Buchungen ändern?</h2>
+          </div>
+          <button class="modal-close" type="button" data-close-modal aria-label="Schließen">×</button>
+        </div>
+        <form id="seriesEditForm">
+          <div class="series-scope-options">
+            <label>
+              <input type="radio" name="scope" value="future" checked />
+              <span><b>Ab dieser Buchung</b><small id="seriesFutureHint">Diese und alle zukünftigen Buchungen</small></span>
+            </label>
+            <label>
+              <input type="radio" name="scope" value="all" />
+              <span><b>Gesamte Serie</b><small>Auch alle vergangenen Buchungen ändern</small></span>
+            </label>
+          </div>
+          <div class="past-selection" id="pastSelection">
+            <div class="past-selection-heading">
+              <div><b>Zusätzliche vergangene Buchungen</b><small>Optional einzelne frühere Buchungen auswählen</small></div>
+              <button id="togglePastEntries" type="button">Alle auswählen</button>
+            </div>
+            <div class="past-occurrence-list" id="pastOccurrenceList"></div>
+          </div>
+          <button class="primary-button form-submit" type="submit">Änderungen anwenden</button>
         </form>
       </section>
     </div>
@@ -479,15 +566,7 @@
           <details class="backup-panel">
             <summary>Backup exportieren <span>↓</span></summary>
             <form id="exportForm">
-              <label>
-                Passwort
-                <input name="password" type="password" minlength="8" autocomplete="new-password" placeholder="Mindestens 8 Zeichen" required />
-              </label>
-              <label>
-                Passwort wiederholen
-                <input name="confirmation" type="password" minlength="8" autocomplete="new-password" placeholder="Passwort bestätigen" required />
-              </label>
-              <p class="security-note">Das Passwort kann nicht wiederhergestellt werden.</p>
+              <p class="security-note">Das Backup wird mit demselben Passwort wie der lokale Datenspeicher verschlüsselt.</p>
               <button class="primary-button form-submit" type="submit">Verschlüsselte JSON exportieren</button>
             </form>
           </details>
@@ -504,10 +583,121 @@
                 <input name="password" type="password" minlength="8" autocomplete="current-password" placeholder="Passwort des Backups" required />
               </label>
               <p class="security-note warning-note">Beim Import werden die aktuellen Daten vollständig ersetzt.</p>
+              <p class="security-note">Nach dem Import wird das Passwort der Datei zum neuen App-Passwort.</p>
               <button class="secondary-button import-button" type="submit">JSON entschlüsseln & importieren</button>
             </form>
           </details>
         </section>
+
+        <section class="danger-section">
+          <div>
+            <h3>Alle Daten löschen</h3>
+            <p>Buchungen, Serien, Kategorien, Budget und Profil dauerhaft entfernen.</p>
+          </div>
+          <button class="danger-button" id="openDeleteAllButton" type="button">Daten löschen</button>
+        </section>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="deleteAllModal" hidden>
+      <section class="modal small-modal delete-all-modal" role="alertdialog" aria-modal="true" aria-labelledby="deleteAllModalTitle" aria-describedby="deleteAllDescription">
+        <div class="modal-handle"></div>
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow danger-eyebrow">UNWIDERRUFLICHE AKTION</p>
+            <h2 id="deleteAllModalTitle">Wirklich alles löschen?</h2>
+          </div>
+          <button class="modal-close" type="button" data-close-modal aria-label="Schließen">×</button>
+        </div>
+        <p class="delete-all-description" id="deleteAllDescription">Alle Buchungen, wiederkehrenden Serien, Kategorien, Budget- und Profildaten werden dauerhaft von diesem Gerät entfernt. Ein vorhandenes verschlüsseltes Backup bleibt davon unberührt.</p>
+        <form id="deleteAllForm">
+          <fieldset class="delete-scope-fieldset">
+            <legend>Was möchtest du löschen?</legend>
+            <div class="delete-scope-options">
+              <label>
+                <input type="radio" name="deleteScope" value="all" checked />
+                <span>Alle Daten</span>
+              </label>
+              <label>
+                <input type="radio" name="deleteScope" value="month" />
+                <span>Monat</span>
+              </label>
+              <label>
+                <input type="radio" name="deleteScope" value="year" />
+                <span>Jahr</span>
+              </label>
+            </div>
+          </fieldset>
+          <label id="deleteMonthField" hidden>
+            Monat auswählen
+            <select name="month" id="deleteMonthSelect"></select>
+          </label>
+          <label id="deleteYearField" hidden>
+            Jahr auswählen
+            <select name="year" id="deleteYearSelect"></select>
+          </label>
+          <label>
+            Zur Bestätigung <b>LÖSCHEN</b> eingeben
+            <input name="confirmation" type="text" autocomplete="off" placeholder="LÖSCHEN" required />
+          </label>
+          <button class="danger-confirm-button" id="deleteAllConfirmButton" type="submit" disabled>Alle Daten endgültig löschen</button>
+        </form>
+      </section>
+    </div>
+
+    <div class="modal-backdrop security-gate" id="securityModal" hidden>
+      <section class="modal security-modal" role="dialog" aria-modal="true" aria-labelledby="securityModalTitle">
+        <div class="security-brand">
+          <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span>Klar</span>
+        </div>
+
+        <div id="setupSecurityPanel" hidden>
+          <p class="eyebrow">LOKALE VERSCHLÜSSELUNG</p>
+          <h2 id="securityModalTitle">App-Passwort festlegen</h2>
+          <p class="security-intro">Deine Browserdaten werden mit AES-256-GCM verschlüsselt. Dieses Passwort wird auch für neue JSON-Backups verwendet.</p>
+          <form id="setupSecurityForm">
+            <label>
+              Passwort
+              <input name="password" type="password" minlength="8" autocomplete="new-password" placeholder="Mindestens 8 Zeichen" required autofocus />
+            </label>
+            <label>
+              Passwort wiederholen
+              <input name="confirmation" type="password" minlength="8" autocomplete="new-password" placeholder="Passwort bestätigen" required />
+            </label>
+            <p class="security-warning">Das Passwort wird nicht gespeichert und kann nicht wiederhergestellt werden.</p>
+            <button class="primary-button form-submit" type="submit">Daten verschlüsseln</button>
+          </form>
+        </div>
+
+        <div id="unlockSecurityPanel" hidden>
+          <p class="eyebrow">GESCHÜTZTE DATEN</p>
+          <h2 id="unlockSecurityTitle">Klar entsperren</h2>
+          <p class="security-intro">Gib dein App-Passwort ein, um deine lokal verschlüsselten Finanzdaten zu öffnen.</p>
+          <form id="unlockSecurityForm">
+            <label>
+              Passwort
+              <input name="password" type="password" minlength="8" autocomplete="current-password" placeholder="App-Passwort" required autofocus />
+            </label>
+            <p class="unlock-error" id="unlockError" role="alert" hidden>Entsperren fehlgeschlagen. Das Passwort ist falsch oder der Datenspeicher ist beschädigt.</p>
+            <button class="primary-button form-submit" type="submit">App entsperren</button>
+            <button class="security-reset-link" id="showSecurityResetButton" type="button">Passwort vergessen? Neu beginnen</button>
+          </form>
+        </div>
+
+        <div id="resetSecurityPanel" hidden>
+          <p class="eyebrow danger-eyebrow">VERSCHLÜSSELTE DATEN LÖSCHEN</p>
+          <h2 id="resetSecurityTitle">Neu beginnen</h2>
+          <p class="security-intro">Der vorhandene Datenspeicher wird endgültig gelöscht. Ohne korrektes Passwort können die bisherigen Daten nicht wiederhergestellt werden.</p>
+          <form id="resetSecurityForm">
+            <label>
+              Zur Bestätigung <b>LÖSCHEN</b> eingeben
+              <input name="confirmation" type="text" autocomplete="off" placeholder="LÖSCHEN" required />
+            </label>
+            <button class="danger-confirm-button" id="resetSecurityConfirmButton" type="submit" disabled>Verschlüsselte Daten löschen</button>
+            <button class="security-reset-link" id="cancelSecurityResetButton" type="button">Zurück zum Entsperren</button>
+          </form>
+        </div>
       </section>
     </div>
 
