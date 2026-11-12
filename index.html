@@ -230,6 +230,16 @@
                 <span>Sparquote</span>
                 <strong id="savingsRate">0%</strong>
               </article>
+              <article>
+                <span>Fixkostenquote</span>
+                <strong id="fixedCostRate">0%</strong>
+                <small id="fixedCostAmount">CHF 0.00 wiederkehrend</small>
+              </article>
+              <article>
+                <span>Variable Kostenquote</span>
+                <strong id="variableCostRate">0%</strong>
+                <small id="variableCostAmount">CHF 0.00 einmalig</small>
+              </article>
             </div>
 
             <div class="year-goals">
@@ -341,6 +351,39 @@
                 <div class="comparison-list" id="categoryComparisonBody"></div>
               </article>
             </div>
+
+            <div class="advanced-insights-grid">
+              <article class="report-card category-group-report">
+                <div class="report-heading">
+                  <div>
+                    <h3>Kategoriegruppen</h3>
+                    <p>Eigene Bereiche im gewählten Jahr</p>
+                  </div>
+                  <button class="report-action-button" id="manageCategoryGroupsButton" type="button">Verwalten</button>
+                </div>
+                <div class="ranked-insight-list" id="categoryGroupBreakdown"></div>
+              </article>
+
+              <article class="report-card cost-driver-report">
+                <div class="report-heading">
+                  <div>
+                    <h3>Grösste Kostentreiber</h3>
+                    <p>Serien und Einzelbuchungen zusammengefasst</p>
+                  </div>
+                </div>
+                <div class="ranked-insight-list" id="costDriverList"></div>
+              </article>
+
+              <article class="report-card outlier-report">
+                <div class="report-heading">
+                  <div>
+                    <h3>Ausreisser</h3>
+                    <p>Ungewöhnlich hohe einmalige Ausgaben</p>
+                  </div>
+                </div>
+                <div class="ranked-insight-list" id="outlierList"></div>
+              </article>
+            </div>
           </section>
         </div>
       </main>
@@ -415,14 +458,20 @@
             <span class="label-with-action">Kategorie <button id="formManageCategoriesButton" type="button">Verwalten</button></span>
             <select name="category" id="categorySelect" required>
               <option value="Lebensmittel">Lebensmittel</option>
+              <option value="Essen auswärts">Essen auswärts</option>
               <option value="Wohnen">Wohnen</option>
+              <option value="Miete">Miete</option>
+              <option value="Strom">Strom</option>
+              <option value="Nebenkosten">Nebenkosten</option>
               <option value="Mobilität">Mobilität</option>
+              <option value="Kommunikation">Kommunikation</option>
               <option value="Auto">Auto</option>
               <option value="Kleider">Kleider</option>
               <option value="Ferien">Ferien</option>
               <option value="Versicherungen">Versicherungen</option>
               <option value="Gesundheit">Gesundheit</option>
               <option value="Steuern">Steuern</option>
+              <option value="Bankspesen">Bankspesen</option>
               <option value="Abonnement">Abonnement</option>
               <option value="Freizeit">Freizeit</option>
               <option value="Sonstiges">Sonstiges</option>
@@ -572,6 +621,48 @@
             <span id="customCategoryCount">0</span>
           </div>
           <div class="custom-category-list" id="customCategoryList"></div>
+        </div>
+      </section>
+    </div>
+
+    <div class="modal-backdrop" id="categoryGroupModal" hidden>
+      <section class="modal category-group-modal" role="dialog" aria-modal="true" aria-labelledby="categoryGroupModalTitle">
+        <div class="modal-handle"></div>
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">AUSWERTUNG</p>
+            <h2 id="categoryGroupModalTitle">Kategoriegruppen verwalten</h2>
+          </div>
+          <button class="modal-close" type="button" data-close-modal aria-label="Schliessen">×</button>
+        </div>
+
+        <form id="categoryGroupForm" class="category-group-form">
+          <div class="category-form-row">
+            <label>
+              Gruppenname
+              <input name="name" type="text" maxlength="32" placeholder="z. B. Wohnkosten" required />
+            </label>
+            <label class="color-label">
+              Farbe
+              <input name="color" type="color" value="#477c68" aria-label="Farbe der Kategoriegruppe" />
+            </label>
+          </div>
+          <fieldset class="group-category-fieldset">
+            <legend>Kategorien auswählen</legend>
+            <div class="group-category-options" id="groupCategoryOptions"></div>
+          </fieldset>
+          <div class="category-group-form-actions">
+            <button class="secondary-button" id="cancelCategoryGroupEditButton" type="button" hidden>Abbrechen</button>
+            <button class="primary-button" id="saveCategoryGroupButton" type="submit">Gruppe hinzufügen</button>
+          </div>
+        </form>
+
+        <div class="custom-category-section">
+          <div class="custom-category-heading">
+            <span>Eigene Gruppen</span>
+            <span id="categoryGroupCount">0</span>
+          </div>
+          <div class="category-group-list" id="categoryGroupList"></div>
         </div>
       </section>
     </div>
@@ -749,6 +840,7 @@
       </section>
     </div>
 
+    <div class="report-expand-backdrop" id="reportExpandBackdrop" hidden></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <script src="app.js"></script>
   </body>

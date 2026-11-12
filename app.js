@@ -1,7 +1,12 @@
 const CATEGORY_META = {
   Lebensmittel: { color: "#0d5c45", icon: "🛒" },
+  "Essen auswärts": { color: "#c16f45", icon: "♨" },
   Wohnen: { color: "#9aaf9e", icon: "⌂" },
+  Miete: { color: "#806f62", icon: "▤" },
+  Strom: { color: "#d3a63c", icon: "↯" },
+  Nebenkosten: { color: "#78988d", icon: "≋" },
   Mobilität: { color: "#e28b4a", icon: "↗" },
+  Kommunikation: { color: "#4f8196", icon: "⌁" },
   Auto: { color: "#b45d47", icon: "🚗" },
   Freizeit: { color: "#6b96a7", icon: "✦" },
   Kleider: { color: "#b07a91", icon: "◇" },
@@ -9,6 +14,7 @@ const CATEGORY_META = {
   Versicherungen: { color: "#667d91", icon: "▣" },
   Gesundheit: { color: "#4e8b79", icon: "+" },
   Steuern: { color: "#7c6658", icon: "§" },
+  Bankspesen: { color: "#526f86", icon: "₣" },
   Abonnement: { color: "#776a9b", icon: "↻" },
   Sonstiges: { color: "#9c86ad", icon: "•" },
   Lohn: { color: "#0d5c45", icon: "+" },
@@ -17,13 +23,13 @@ const CATEGORY_META = {
   Geschenk: { color: "#9c86ad", icon: "◇" },
 };
 
-const EXPENSE_CATEGORIES = ["Lebensmittel", "Wohnen", "Mobilität", "Auto", "Kleider", "Ferien", "Versicherungen", "Gesundheit", "Steuern", "Abonnement", "Freizeit", "Sonstiges"];
+const EXPENSE_CATEGORIES = ["Lebensmittel", "Essen auswärts", "Wohnen", "Miete", "Strom", "Nebenkosten", "Mobilität", "Kommunikation", "Auto", "Kleider", "Ferien", "Versicherungen", "Gesundheit", "Steuern", "Bankspesen", "Abonnement", "Freizeit", "Sonstiges"];
 const INCOME_CATEGORIES = ["Lohn", "Bonus", "Zinsen", "Geschenk", "Sonstiges"];
 
 const DEFAULT_EXPENSES = [
   { id: 1, description: "Coop", amount: 86.4, category: "Lebensmittel", type: "Ausgabe", period: "Einmalig", date: "2026-07-20" },
   { id: 2, description: "SBB Mobile", amount: 42.0, category: "Mobilität", type: "Ausgabe", period: "Monatlich", date: "2026-07-19" },
-  { id: 3, description: "Miete", amount: 1480.0, category: "Wohnen", type: "Ausgabe", period: "Monatlich", date: "2026-07-01" },
+  { id: 3, description: "Miete", amount: 1480.0, category: "Miete", type: "Ausgabe", period: "Monatlich", date: "2026-07-01" },
   { id: 4, description: "Kino Houdini", amount: 38.0, category: "Freizeit", type: "Ausgabe", period: "Einmalig", date: "2026-07-17" },
   { id: 5, description: "Migros", amount: 64.85, category: "Lebensmittel", type: "Ausgabe", period: "Einmalig", date: "2026-07-16" },
   { id: 6, description: "Spotify", amount: 13.95, category: "Freizeit", type: "Ausgabe", period: "Monatlich", date: "2026-07-14" },
@@ -34,7 +40,7 @@ const DEFAULT_EXPENSES = [
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => [...document.querySelectorAll(selector)];
 const VAULT_KEY = "klar-vault";
-const PROTECTED_STORAGE_KEYS = new Set(["klar-expenses", "klar-budget", "klar-yearly-goals", "klar-profile", "klar-custom-categories"]);
+const PROTECTED_STORAGE_KEYS = new Set(["klar-expenses", "klar-budget", "klar-yearly-goals", "klar-profile", "klar-custom-categories", "klar-category-groups"]);
 const existingVault = localStorage.getItem(VAULT_KEY);
 let isVaultUnlocked = false;
 let vaultPassword = null;
@@ -57,6 +63,18 @@ if (!Array.isArray(customCategories)) customCategories = [];
 customCategories.forEach((category) => {
   CATEGORY_META[category.name] = { color: category.color, icon: category.name.charAt(0).toUpperCase() };
 });
+const initialGroupableCategories = new Set([
+  ...EXPENSE_CATEGORIES,
+  ...customCategories.filter((category) => category.type === "Ausgabe").map((category) => category.name),
+]);
+let categoryGroups = existingVault ? [] : storage.get("klar-category-groups", []);
+if (!Array.isArray(categoryGroups)) categoryGroups = [];
+categoryGroups = categoryGroups.filter((group) => group && typeof group.name === "string" && Array.isArray(group.categories)).map((group) => ({
+  id: Number(group.id) || Date.now() + Math.random(),
+  name: group.name.trim().slice(0, 32),
+  color: /^#[0-9a-f]{6}$/i.test(group.color) ? group.color : "#477c68",
+  categories: [...new Set(group.categories.filter((category) => typeof category === "string" && initialGroupableCategories.has(category)))],
+})).filter((group) => group.name && group.categories.length);
 let profile = existingVault ? { name: "Benutzer", initials: "B" } : storage.get("klar-profile", { name: "Lea", initials: "LM" });
 if (!profile || typeof profile.name !== "string" || typeof profile.initials !== "string") profile = { name: "Lea", initials: "LM" };
 profile.name = profile.name.trim().slice(0, 40) || "Lea";
@@ -85,6 +103,9 @@ let activeView = "overview";
 let editingEntryId = null;
 let editingOccurrenceDate = null;
 let pendingSeriesEdit = null;
+let editingCategoryGroupId = null;
+let expandedReportCard = null;
+let reportCardPreviousFocus = null;
 let toastTimer;
 
 const MONTHS_SHORT = ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"];
@@ -98,6 +119,7 @@ function getAppPayload() {
     budget,
     yearlyGoals,
     customCategories,
+    categoryGroups,
     profile,
   };
 }
@@ -158,6 +180,7 @@ function applyImportedState(imported) {
   yearlyGoals = imported.yearlyGoals;
   profile = imported.profile;
   replaceCustomCategories(imported.categories);
+  categoryGroups = imported.categoryGroups;
 }
 
 function getCategories(type) {
@@ -449,6 +472,14 @@ function renderAnalytics() {
   const incomeTotal = monthlyIncomeTotals.reduce((sum, amount) => sum + amount, 0);
   const balance = incomeTotal - total;
   const savingsRate = incomeTotal > 0 ? balance / incomeTotal * 100 : null;
+  const fixedCostTotal = yearlyExpenses
+    .filter((expense) => expense.period !== "Einmalig")
+    .reduce((sum, expense) => sum + Number(expense.amount), 0);
+  const fixedCostRate = incomeTotal > 0 ? fixedCostTotal / incomeTotal * 100 : null;
+  const variableCostTotal = yearlyExpenses
+    .filter((expense) => expense.period === "Einmalig")
+    .reduce((sum, expense) => sum + Number(expense.amount), 0);
+  const variableCostRate = incomeTotal > 0 ? variableCostTotal / incomeTotal * 100 : null;
   const monthsConsidered = reportYear === currentYear ? now.getMonth() + 1 : 12;
   const averageMonthlyExpenses = total / monthsConsidered;
   const maxValue = Math.max(...monthlyTotals, ...monthlyIncomeTotals, 0);
@@ -460,6 +491,10 @@ function renderAnalytics() {
   $("#annualBalance").className = balance >= 0 ? "positive" : "negative";
   $("#savingsRate").textContent = savingsRate === null ? "–" : `${savingsRate.toFixed(1)}%`;
   $("#savingsRate").className = savingsRate === null ? "" : savingsRate >= 0 ? "positive" : "negative";
+  $("#fixedCostRate").textContent = fixedCostRate === null ? "–" : `${fixedCostRate.toFixed(1)}%`;
+  $("#fixedCostAmount").textContent = `${formatCurrency(fixedCostTotal)} wiederkehrend`;
+  $("#variableCostRate").textContent = variableCostRate === null ? "–" : `${variableCostRate.toFixed(1)}%`;
+  $("#variableCostAmount").textContent = `${formatCurrency(variableCostTotal)} einmalig`;
   renderYearGoals(total, balance);
 
   const scaleMax = maxValue > 0 ? niceScaleMax(maxValue) : 1000;
@@ -496,6 +531,9 @@ function renderAnalytics() {
     total: "#annualIncomeDonutTotal",
     breakdown: "#incomeCategoryBreakdown",
   }, "Einnahmen");
+  renderCategoryGroupBreakdown(yearlyExpenses, total);
+  renderCostDrivers(yearlyExpenses, total);
+  renderOutliers(yearlyExpenses);
   renderRecurringInflation(reportYear, reportEnd, currentYear);
   renderCategoryComparison();
 }
@@ -701,6 +739,104 @@ function renderAnnualCategories(sums, total, targets, emptyLabel) {
   ).join("") : `<p class="no-report-data">Noch keine ${emptyLabel} in diesem Jahr.</p>`;
 }
 
+function renderCategoryGroupBreakdown(yearlyExpenses, totalExpenses) {
+  if (!categoryGroups.length) {
+    $("#categoryGroupBreakdown").innerHTML = `<p class="no-report-data">Erstelle eigene Gruppen wie „Wohnkosten“ oder „Mobilität“.</p>`;
+    return;
+  }
+  const groups = categoryGroups.map((group) => ({
+    ...group,
+    amount: yearlyExpenses
+      .filter((expense) => group.categories.includes(expense.category))
+      .reduce((sum, expense) => sum + Number(expense.amount), 0),
+  })).sort((a, b) => b.amount - a.amount);
+  const largestAmount = Math.max(1, ...groups.map((group) => group.amount));
+  $("#categoryGroupBreakdown").innerHTML = groups.map((group, index) => `
+    <div class="ranked-insight-row" style="--group-color:${group.color}">
+      <span class="ranked-insight-rank">${index + 1}</span>
+      <div class="ranked-insight-main">
+        <div class="ranked-insight-heading"><span class="legend-dot" style="background:${group.color}"></span><strong>${escapeHtml(group.name)}</strong></div>
+        <small>${escapeHtml(group.categories.join(" · "))}</small>
+      </div>
+      <div class="ranked-insight-value">${formatCurrency(group.amount)}<small>${totalExpenses ? `${(group.amount / totalExpenses * 100).toFixed(1)}% der Ausgaben` : "0% der Ausgaben"}</small></div>
+      <div class="ranked-insight-bar"><i style="width:${group.amount / largestAmount * 100}%"></i></div>
+    </div>`).join("");
+}
+
+function renderCostDrivers(yearlyExpenses, totalExpenses) {
+  const driversBySource = new Map();
+  yearlyExpenses.forEach((expense) => {
+    const key = expense.period === "Einmalig" ? `entry-${expense.sourceId}-${expense.date}` : `series-${expense.sourceId}`;
+    const existing = driversBySource.get(key) || {
+      description: expense.description,
+      category: expense.category,
+      amount: 0,
+      count: 0,
+      lastDate: expense.date,
+      period: expense.period,
+    };
+    existing.amount += Number(expense.amount);
+    existing.count += 1;
+    if (expense.date >= existing.lastDate) {
+      existing.description = expense.description;
+      existing.category = expense.category;
+      existing.lastDate = expense.date;
+    }
+    driversBySource.set(key, existing);
+  });
+  const drivers = [...driversBySource.values()].sort((a, b) => b.amount - a.amount).slice(0, 5);
+  const largestAmount = Math.max(1, ...drivers.map((driver) => driver.amount));
+  $("#costDriverList").innerHTML = drivers.length ? drivers.map((driver, index) => {
+    const meta = CATEGORY_META[driver.category] || CATEGORY_META.Sonstiges;
+    const occurrenceLabel = driver.count > 1 ? `${driver.count} Buchungen` : formatDate(driver.lastDate);
+    return `<div class="ranked-insight-row">
+      <span class="ranked-insight-rank">${index + 1}</span>
+      <div class="ranked-insight-main">
+        <div class="ranked-insight-heading"><span class="legend-dot" style="background:${meta.color}"></span><strong>${escapeHtml(driver.description)}</strong></div>
+        <small>${escapeHtml(driver.category)} · ${occurrenceLabel}</small>
+      </div>
+      <div class="ranked-insight-value">${formatCurrency(driver.amount)}<small>${totalExpenses ? `${(driver.amount / totalExpenses * 100).toFixed(1)}%` : "0%"}</small></div>
+      <div class="ranked-insight-bar"><i style="width:${driver.amount / largestAmount * 100}%"></i></div>
+    </div>`;
+  }).join("") : `<p class="no-report-data">Noch keine Ausgaben in diesem Jahr.</p>`;
+}
+
+function median(values) {
+  if (!values.length) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function renderOutliers(yearlyExpenses) {
+  const oneTimeExpenses = yearlyExpenses.filter((expense) => expense.period === "Einmalig");
+  const byCategory = new Map();
+  oneTimeExpenses.forEach((expense) => {
+    if (!byCategory.has(expense.category)) byCategory.set(expense.category, []);
+    byCategory.get(expense.category).push(expense);
+  });
+  const outliers = oneTimeExpenses.flatMap((expense) => {
+    const peers = (byCategory.get(expense.category) || []).filter((peer) => peer.occurrenceId !== expense.occurrenceId);
+    if (peers.length < 2) return [];
+    const typicalAmount = median(peers.map((peer) => Number(peer.amount)));
+    const amount = Number(expense.amount);
+    if (typicalAmount <= 0 || amount < typicalAmount * 2 || amount - typicalAmount < 50) return [];
+    return [{ expense, typicalAmount, ratio: amount / typicalAmount, difference: amount - typicalAmount }];
+  }).sort((a, b) => b.difference - a.difference).slice(0, 5);
+
+  $("#outlierList").innerHTML = outliers.length ? outliers.map((item, index) => {
+    const meta = CATEGORY_META[item.expense.category] || CATEGORY_META.Sonstiges;
+    return `<div class="ranked-insight-row">
+      <span class="ranked-insight-rank">!</span>
+      <div class="ranked-insight-main">
+        <div class="ranked-insight-heading"><span class="legend-dot" style="background:${meta.color}"></span><strong>${escapeHtml(item.expense.description)}</strong></div>
+        <small>${escapeHtml(item.expense.category)} · ${formatDate(item.expense.date)} · typisch ${formatCurrency(item.typicalAmount)}</small>
+      </div>
+      <div class="ranked-insight-value">${formatCurrency(item.expense.amount)}<small>${item.ratio.toFixed(1)}× typisch</small></div>
+    </div>`;
+  }).join("") : `<p class="no-report-data">Keine deutlichen Ausreisser erkannt. Für den Vergleich braucht es mindestens drei einmalige Buchungen je Kategorie.</p>`;
+}
+
 function renderDonut(sums, total) {
   const circumference = 2 * Math.PI * 45;
   let offset = 0;
@@ -730,6 +866,7 @@ function render() {
   renderSummary();
   renderAnalytics();
   renderCustomCategories();
+  renderCategoryGroupManager();
   renderSeriesList();
 }
 
@@ -748,6 +885,59 @@ function closeModals() {
 function closeModal(modal) {
   modal.hidden = true;
   if ($$(".modal-backdrop:not([hidden])").length === 0) document.body.style.overflow = "";
+}
+
+function openExpandedReport(card) {
+  if (!card || expandedReportCard === card) return;
+  if (expandedReportCard) closeExpandedReport(false);
+  reportCardPreviousFocus = document.activeElement;
+  expandedReportCard = card;
+  card.classList.add("report-card-expanded");
+  const button = card.querySelector(":scope > .report-expand-button");
+  button.textContent = "×";
+  button.setAttribute("aria-label", "Vergrösserte Ansicht schliessen");
+  button.setAttribute("aria-expanded", "true");
+  $("#reportExpandBackdrop").hidden = false;
+  document.body.classList.add("report-expanded");
+  button.focus();
+}
+
+function closeExpandedReport(restoreFocus = true) {
+  if (!expandedReportCard) return;
+  const card = expandedReportCard;
+  const button = card.querySelector(":scope > .report-expand-button");
+  card.classList.remove("report-card-expanded");
+  button.textContent = "⤢";
+  button.setAttribute("aria-label", "Auswertung vergrössern");
+  button.setAttribute("aria-expanded", "false");
+  $("#reportExpandBackdrop").hidden = true;
+  document.body.classList.remove("report-expanded");
+  expandedReportCard = null;
+  if (restoreFocus && reportCardPreviousFocus instanceof HTMLElement && reportCardPreviousFocus.isConnected) reportCardPreviousFocus.focus();
+  reportCardPreviousFocus = null;
+}
+
+function setupExpandableReports() {
+  $$("#analytics .report-card").forEach((card) => {
+    if (card.classList.contains("expandable-report-card")) return;
+    card.classList.add("expandable-report-card");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "report-expand-button";
+    button.textContent = "⤢";
+    button.setAttribute("aria-label", "Auswertung vergrössern");
+    button.setAttribute("aria-expanded", "false");
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (expandedReportCard === card) closeExpandedReport();
+      else openExpandedReport(card);
+    });
+    card.prepend(button);
+    card.addEventListener("click", (event) => {
+      if (expandedReportCard === card || event.target.closest("button, select, input, a, label, summary")) return;
+      openExpandedReport(card);
+    });
+  });
 }
 
 function showToast(message) {
@@ -852,6 +1042,7 @@ $("#resetSecurityForm").addEventListener("submit", (event) => {
   expenses = [];
   budget = 3000;
   yearlyGoals = {};
+  categoryGroups = [];
   profile = { name: "Benutzer", initials: "B" };
   replaceCustomCategories([]);
   vaultPassword = null;
@@ -863,6 +1054,7 @@ $("#resetSecurityForm").addEventListener("submit", (event) => {
 });
 
 function showView(view, updateHash = true) {
+  if (expandedReportCard) closeExpandedReport(false);
   const validViews = ["overview", "transactions", "analytics"];
   activeView = validViews.includes(view) ? view : "overview";
   $$("[data-view]").forEach((section) => {
@@ -1099,6 +1291,11 @@ $("#openDeleteAllButton").addEventListener("click", () => {
   $("#categoryForm [name=type]").value = selectedType;
   openModal("#categoryModal");
 }));
+$("#manageCategoryGroupsButton").addEventListener("click", () => {
+  closeExpandedReport(false);
+  resetCategoryGroupForm();
+  openModal("#categoryGroupModal");
+});
 function renderBudgetYearOptions(selectedYear = new Date().getFullYear()) {
   const currentYear = new Date().getFullYear();
   const years = [...new Set([
@@ -1272,6 +1469,7 @@ $("#deleteAllForm").addEventListener("submit", async (event) => {
   expenses = [];
   budget = 3000;
   yearlyGoals = {};
+  categoryGroups = [];
   profile = { name: "Benutzer", initials: "B" };
   replaceCustomCategories([]);
   activeCategory = "Alle";
@@ -1280,6 +1478,7 @@ $("#deleteAllForm").addEventListener("submit", async (event) => {
   editingEntryId = null;
   editingOccurrenceDate = null;
   pendingSeriesEdit = null;
+  editingCategoryGroupId = null;
   reportYear = new Date().getFullYear();
   transactionPeriod = `month-${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
 
@@ -1400,6 +1599,23 @@ function validateBackupPayload(payload) {
     if (valid) seenNames.add(normalized);
     return valid;
   }).map((category) => ({ id: Number(category.id) || Date.now() + Math.random(), name: category.name.trim(), type: category.type, color: category.color }));
+  const availableExpenseCategories = new Set([
+    ...EXPENSE_CATEGORIES,
+    ...categories.filter((category) => category.type === "Ausgabe").map((category) => category.name),
+  ]);
+  const assignedGroupCategories = new Set();
+  const seenGroupNames = new Set();
+  const categoryGroups = (Array.isArray(payload.categoryGroups) ? payload.categoryGroups : []).slice(0, 50).flatMap((group) => {
+    const name = typeof group?.name === "string" ? group.name.trim().slice(0, 32) : "";
+    const normalizedName = name.toLocaleLowerCase("de");
+    if (!name || seenGroupNames.has(normalizedName) || !/^#[0-9a-f]{6}$/i.test(group.color) || !Array.isArray(group.categories)) return [];
+    const groupCategories = [...new Set(group.categories)]
+      .filter((category) => typeof category === "string" && availableExpenseCategories.has(category) && !assignedGroupCategories.has(category));
+    if (!groupCategories.length) return [];
+    seenGroupNames.add(normalizedName);
+    groupCategories.forEach((category) => assignedGroupCategories.add(category));
+    return [{ id: Number(group.id) || Date.now() + Math.random(), name, color: group.color, categories: groupCategories }];
+  });
   const importedBudget = Number(payload.budget);
   if (!Number.isFinite(importedBudget) || importedBudget <= 0) throw new Error("invalid-budget");
   const importedYearlyGoals = {};
@@ -1414,7 +1630,7 @@ function validateBackupPayload(payload) {
   const importedProfile = payload.profile && typeof payload.profile.name === "string" && typeof payload.profile.initials === "string"
     ? { name: payload.profile.name.trim().slice(0, 40) || "Benutzer", initials: payload.profile.initials.trim().slice(0, 3).toUpperCase() || "B" }
     : { name: "Benutzer", initials: "B" };
-  return { entries, categories, budget: importedBudget, yearlyGoals: importedYearlyGoals, profile: importedProfile };
+  return { entries, categories, categoryGroups, budget: importedBudget, yearlyGoals: importedYearlyGoals, profile: importedProfile };
 }
 
 function replaceCustomCategories(categories) {
@@ -1523,6 +1739,108 @@ function renderCustomCategories() {
     </div>`).join("") : `<p class="custom-category-empty">Noch keine eigenen Kategorien erstellt.</p>`;
 }
 
+function renderCategoryGroupManager() {
+  const editingGroup = categoryGroups.find((group) => group.id === editingCategoryGroupId);
+  const assignedCategories = new Map();
+  categoryGroups.forEach((group) => {
+    if (group.id !== editingCategoryGroupId) group.categories.forEach((category) => assignedCategories.set(category, group.name));
+  });
+  $("#categoryGroupCount").textContent = categoryGroups.length;
+  $("#categoryGroupList").innerHTML = categoryGroups.length ? categoryGroups.map((group) => `
+    <div class="category-group-item">
+      <span class="legend-dot" style="background:${group.color}"></span>
+      <div class="category-group-item-info">
+        <strong>${escapeHtml(group.name)}</strong>
+        <small>${escapeHtml(group.categories.join(" · "))}</small>
+      </div>
+      <div class="category-group-item-actions">
+        <button type="button" data-edit-category-group="${group.id}">Ändern</button>
+        <button type="button" data-delete-category-group="${group.id}" aria-label="Kategoriegruppe ${escapeHtml(group.name)} löschen">Löschen</button>
+      </div>
+    </div>`).join("") : `<p class="custom-category-empty">Noch keine Kategoriegruppen erstellt.</p>`;
+  $("#groupCategoryOptions").innerHTML = getCategories("Ausgabe").map((category) => {
+    const assignedGroup = assignedCategories.get(category);
+    const checked = editingGroup?.categories.includes(category);
+    return `<label class="group-category-option">
+      <input type="checkbox" name="categories" value="${escapeHtml(category)}" ${checked ? "checked" : ""} ${assignedGroup ? "disabled" : ""} />
+      <span><i class="legend-dot" style="background:${(CATEGORY_META[category] || CATEGORY_META.Sonstiges).color}"></i><b>${escapeHtml(category)}${assignedGroup ? `<small>Bereits in ${escapeHtml(assignedGroup)}</small>` : ""}</b></span>
+    </label>`;
+  }).join("");
+}
+
+function resetCategoryGroupForm() {
+  editingCategoryGroupId = null;
+  $("#categoryGroupForm").reset();
+  $("#categoryGroupForm [name=color]").value = "#477c68";
+  $("#saveCategoryGroupButton").textContent = "Gruppe hinzufügen";
+  $("#cancelCategoryGroupEditButton").hidden = true;
+  renderCategoryGroupManager();
+}
+
+$("#categoryGroupForm").addEventListener("submit", (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const data = new FormData(form);
+  const name = data.get("name").trim().slice(0, 32);
+  const availableCategories = new Set(getCategories("Ausgabe"));
+  const categories = [...new Set(data.getAll("categories").filter((category) => availableCategories.has(category)))];
+  const color = /^#[0-9a-f]{6}$/i.test(data.get("color")) ? data.get("color") : "#477c68";
+  if (!name) {
+    showToast("Gib der Gruppe einen Namen.");
+    return;
+  }
+  const duplicateName = categoryGroups.some((group) => group.id !== editingCategoryGroupId && group.name.toLocaleLowerCase("de") === name.toLocaleLowerCase("de"));
+  if (duplicateName) {
+    showToast("Eine Gruppe mit diesem Namen existiert bereits.");
+    return;
+  }
+  if (!categories.length) {
+    showToast("Wähle mindestens eine Kategorie aus.");
+    return;
+  }
+  const usedElsewhere = categoryGroups.some((group) => group.id !== editingCategoryGroupId && group.categories.some((category) => categories.includes(category)));
+  if (usedElsewhere) {
+    showToast("Eine Kategorie kann nur zu einer Gruppe gehören.");
+    renderCategoryGroupManager();
+    return;
+  }
+  const group = { id: editingCategoryGroupId || Date.now(), name, color, categories };
+  if (editingCategoryGroupId) categoryGroups = categoryGroups.map((item) => item.id === editingCategoryGroupId ? group : item);
+  else categoryGroups.push(group);
+  storage.set("klar-category-groups", categoryGroups);
+  const message = editingCategoryGroupId ? "Kategoriegruppe wurde aktualisiert." : "Kategoriegruppe wurde hinzugefügt.";
+  resetCategoryGroupForm();
+  render();
+  showToast(message);
+});
+
+$("#cancelCategoryGroupEditButton").addEventListener("click", resetCategoryGroupForm);
+
+$("#categoryGroupList").addEventListener("click", (event) => {
+  const editButton = event.target.closest("[data-edit-category-group]");
+  if (editButton) {
+    const group = categoryGroups.find((item) => item.id === Number(editButton.dataset.editCategoryGroup));
+    if (!group) return;
+    editingCategoryGroupId = group.id;
+    $("#categoryGroupForm [name=name]").value = group.name;
+    $("#categoryGroupForm [name=color]").value = group.color;
+    $("#saveCategoryGroupButton").textContent = "Änderungen speichern";
+    $("#cancelCategoryGroupEditButton").hidden = false;
+    renderCategoryGroupManager();
+    $("#categoryGroupForm [name=name]").focus();
+    return;
+  }
+  const deleteButton = event.target.closest("[data-delete-category-group]");
+  if (!deleteButton) return;
+  const group = categoryGroups.find((item) => item.id === Number(deleteButton.dataset.deleteCategoryGroup));
+  if (!group || !window.confirm(`Kategoriegruppe „${group.name}“ löschen? Die Buchungen und Kategorien bleiben erhalten.`)) return;
+  categoryGroups = categoryGroups.filter((item) => item.id !== group.id);
+  storage.set("klar-category-groups", categoryGroups);
+  if (editingCategoryGroupId === group.id) resetCategoryGroupForm();
+  render();
+  showToast("Kategoriegruppe wurde gelöscht.");
+});
+
 $("#categoryForm").addEventListener("submit", (event) => {
   event.preventDefault();
   const data = new FormData(event.currentTarget);
@@ -1553,8 +1871,12 @@ $("#customCategoryList").addEventListener("click", (event) => {
     return;
   }
   customCategories = customCategories.filter((item) => item.id !== category.id);
+  categoryGroups = categoryGroups
+    .map((group) => ({ ...group, categories: group.categories.filter((name) => name !== category.name) }))
+    .filter((group) => group.categories.length);
   delete CATEGORY_META[category.name];
   storage.set("klar-custom-categories", customCategories);
+  storage.set("klar-category-groups", categoryGroups);
   render();
   updateEntryForm();
   showToast("Kategorie wurde gelöscht.");
@@ -1607,16 +1929,23 @@ $("#comparisonMonthSelect").addEventListener("change", (event) => {
   comparisonMonth = event.target.value;
   renderCategoryComparison();
 });
-$("#printAnalyticsButton").addEventListener("click", () => window.print());
+$("#printAnalyticsButton").addEventListener("click", () => {
+  closeExpandedReport(false);
+  window.print();
+});
+$("#reportExpandBackdrop").addEventListener("click", () => closeExpandedReport());
 $$('[data-close-modal]').forEach((button) => button.addEventListener("click", () => closeModal(button.closest(".modal-backdrop"))));
 $$('.modal-backdrop').forEach((backdrop) => backdrop.addEventListener("click", (event) => {
   if (event.target === backdrop && backdrop.id !== "securityModal") closeModal(backdrop);
 }));
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && $("#securityModal").hidden) closeModals();
+  if (event.key !== "Escape" || !$("#securityModal").hidden) return;
+  if (expandedReportCard) closeExpandedReport();
+  else closeModals();
 });
 
 setGreeting();
+setupExpandableReports();
 render();
 showView(window.location.hash.slice(1) || "overview", false);
 showSecurityGate(existingVault ? "unlock" : "setup");

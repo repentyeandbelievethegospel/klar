@@ -20,7 +20,7 @@ Danach `http://localhost:8000` öffnen.
 - Automatische monatliche und jährliche Wiederholungen ab dem Startdatum
 - Optionales Enddatum für die Laufzeit monatlicher und jährlicher Serien
 - Eigene Kategorien für Einnahmen und Ausgaben mit frei wählbarer Farbe
-- Zusätzliche Standardkategorien für Auto, Kleider, Ferien, Versicherungen, Gesundheit, Steuern und Abonnemente
+- Zusätzliche Standardkategorien für Essen auswärts, Miete, Strom, Nebenkosten, Kommunikation, Auto, Kleider, Ferien, Versicherungen, Gesundheit, Steuern, Bankspesen und Abonnemente
 - Getrennte Ansichten für Übersicht, Transaktionen und Auswertungen
 - Monats- und Jahresfilter für die Buchungsansicht
 - Einmalige Buchungen und wiederkehrende Serien bearbeiten
@@ -33,14 +33,20 @@ Danach `http://localhost:8000` öffnen.
 - Selektives Löschen aller Buchungen eines Monats oder Jahres
 - Monatliche und jährliche Salden aus Einnahmen und Ausgaben
 - Sparbetrag und Sparquote in der Jahresauswertung
+- Fixkostenquote aus wiederkehrenden Ausgaben und Einnahmen des gewählten Jahres
+- Variable Kostenquote aus einmaligen Ausgaben und Einnahmen des gewählten Jahres
 - Durchschnittliche Monatsausgaben für laufende und abgeschlossene Jahre
 - Jährliche Ausgabenbudgets und Sparziele mit Fortschrittsanzeige
 - Automatisches jährliches Ausgabenbudget aus monatlichem Ausgabenbudget × 12
 - Farblich klar getrennte Einnahmen (grün) und Ausgaben (rot)
 - Teuerungsanalyse wiederkehrender monatlicher und jährlicher Kosten
 - Monats- und Jahresvergleiche der Ausgaben pro Kategorie
+- Frei definierbare Kategoriegruppen mit eigener Farbe und eindeutiger Kategoriezuordnung
+- Rangliste der grössten Kostentreiber, zusammengefasst nach Serie oder Einzelbuchung
+- Erkennung ungewöhnlich hoher einmaliger Ausgaben anhand vergleichbarer Buchungen derselben Kategorie
 - Separate Kategorieauswertungen für Einnahmen und Ausgaben
 - Druckoptimierte Jahresauswertung
+- Anklickbare Auswertungskarten mit vergrösserter Detailansicht
 - Getrennte Summen und Filter für den Abrechnungsrhythmus
 - Jahresauswertung mit allen zwölf Monaten, Jahressumme und Monatsdurchschnitt
 - Kategorieverteilung und stärkster Ausgabenmonat pro Jahr
